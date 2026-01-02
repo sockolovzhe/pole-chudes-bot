@@ -14,9 +14,24 @@ class GameState {
     this.players = []; // Список участников
     this.currentPlayerIndex = 0; // Индекс текущего игрока
     this.guessedLetters = new Set(); // Угаданные буквы
+    this.attemptedLetters = new Set(); // Все попытанные буквы (угаданные и неугаданные)
     this.isActive = false; // Активна ли игра
     this.scores = new Map(); // Очки игроков (userId -> score)
     this.letterPoints = new Map(); // Очки за каждую букву (letter -> points)
+  }
+
+  // Нормализовать символ для сравнения: считать 'Й'='И', 'Ё'='Е', 'Ъ'='Ь' равными
+  normalizeChar(ch) {
+    if (!ch) return ch;
+    const up = ch.toUpperCase();
+    if (up === 'Й') return 'И';
+    if (up === 'Ё') return 'Е';
+    return up;
+  }
+
+  // Нормализовать строку для сравнения (убрать лишние пробелы, привести к верхнему регистру и заменить Й→И, Ё→Е)
+  normalizeStringForCompare(s) {
+    return s.trim().toUpperCase().replace(/\s+/g, ' ').replace(/Й/g, 'И').replace(/Ё/g, 'Е');
   }
 
   // Генерировать случайные очки (100-1000, кратно 100)
@@ -59,11 +74,13 @@ class GameState {
     return this.word
       .split('')
       .map(letter => {
-        const upperLetter = letter.toUpperCase();
-        if (this.guessedLetters.has(upperLetter) || letter === ' ') {
-          return letter;
+        if (letter === ' ') return '   ';
+        const norm = this.normalizeChar(letter);
+        if (this.guessedLetters.has(norm)) {
+          const upperLetter = letter.toUpperCase();
+          return ` ${upperLetter} `;
         }
-        return '█';
+        return ' █ ';
       })
       .join('');
   }
@@ -71,38 +88,50 @@ class GameState {
   // Проверить, угадана ли буква
   guessLetter(letter, userId) {
     const upperLetter = letter.toUpperCase();
-    if (this.guessedLetters.has(upperLetter)) {
-      return { success: false, message: 'Эта буква уже была угадана!' };
+    const normLetter = this.normalizeChar(upperLetter);
+    
+    if (this.guessedLetters.has(normLetter)) {
+      return { success: false, message: 'Эта буква уже была угадана!', alreadyTried: true };
+    }
+    
+    // Проверяем, была ли эта буква попыткой раньше (но не угадана)
+    const wasAttemptedBefore = this.attemptedLetters.has(normLetter);
+    
+    // Добавляем букву в список всех попыток
+    this.attemptedLetters.add(normLetter);
+
+    // Подсчитываем количество вхождений нормализованной буквы в слове
+    let letterCount = 0;
+    for (const ch of this.word.split('')) {
+      if (ch === ' ') continue;
+      if (this.normalizeChar(ch) === normLetter) letterCount++;
     }
 
-    if (this.word.toUpperCase().includes(upperLetter)) {
-      this.guessedLetters.add(upperLetter);
+    if (letterCount > 0) {
+      this.guessedLetters.add(normLetter);
       const isComplete = this.getDisplayWord().split('').every(char => char !== '█');
-      
-      // Подсчитываем количество вхождений буквы в слове
-      const letterCount = (this.word.toUpperCase().match(new RegExp(upperLetter, 'g')) || []).length;
-      
+
       // Генерируем случайные очки за одну букву
       const basePoints = this.generatePoints();
-      
+
       // Умножаем очки на количество вхождений буквы
       const totalPoints = basePoints * letterCount;
-      
+
       // Сохраняем базовые очки за эту букву (без умножения) для статистики
-      if (!this.letterPoints.has(upperLetter) || this.letterPoints.get(upperLetter) < basePoints) {
-        this.letterPoints.set(upperLetter, basePoints);
+      if (!this.letterPoints.has(normLetter) || this.letterPoints.get(normLetter) < basePoints) {
+        this.letterPoints.set(normLetter, basePoints);
       }
-      
+
       const newTotal = this.addPoints(userId, totalPoints);
-      
+
       // Формируем сообщение в зависимости от количества вхождений
       let message = `Буква "${letter.toUpperCase()}" есть в слове!`;
       if (letterCount > 1) {
         message += ` (встречается ${letterCount} раз${letterCount === 2 || letterCount === 3 || letterCount === 4 ? 'а' : ''})`;
       }
-      
-      return { 
-        success: true, 
+
+      return {
+        success: true,
         message: message,
         isComplete,
         points: totalPoints,
@@ -112,7 +141,12 @@ class GameState {
       };
     }
 
-    return { success: false, message: `Буквы "${letter.toUpperCase()}" нет в слове.` };
+    // Буква не в слове
+    if (wasAttemptedBefore) {
+      return { success: false, message: `Буквы "${letter.toUpperCase()}" нет в слове (уже пробовали).`, alreadyTried: true };
+    }
+    
+    return { success: false, message: `Буквы "${letter.toUpperCase()}" нет в слове.`, alreadyTried: false };
   }
 
   // Проверить, завершена ли игра
@@ -165,9 +199,9 @@ class GameState {
 
   // Угадать слово целиком или одно слово из фразы
   guessWord(guessedWord, userId) {
-    // Нормализуем оба слова для сравнения (убираем лишние пробелы, приводим к верхнему регистру)
-    const normalizedGuessed = guessedWord.trim().toUpperCase().replace(/\s+/g, ' ');
-    const normalizedWord = this.word.trim().toUpperCase().replace(/\s+/g, ' ');
+    // Нормализуем оба слова для сравнения (убираем лишние пробелы, приводим к верхнему регистру и заменяем Й->И)
+    const normalizedGuessed = this.normalizeStringForCompare(guessedWord);
+    const normalizedWord = this.normalizeStringForCompare(this.word);
 
     // Проверяем, угадано ли все слово целиком
     const isFullWord = normalizedGuessed === normalizedWord;
@@ -177,11 +211,11 @@ class GameState {
     if (!isFullWord) {
       const words = this.word.trim().split(/\s+/);
       const guessedWords = guessedWord.trim().split(/\s+/);
-      
-      // Проверяем, является ли угаданное одно слово частью фразы
+
+      // Проверяем, является ли угаданное одно слово частью фразы (по нормализованной форме)
       if (guessedWords.length === 1) {
-        const guessedSingleWord = guessedWords[0].toUpperCase();
-        targetWord = words.find(w => w.toUpperCase() === guessedSingleWord);
+        const guessedSingleWordNorm = this.normalizeStringForCompare(guessedWords[0]);
+        targetWord = words.find(w => this.normalizeStringForCompare(w) === guessedSingleWordNorm);
       }
     }
 
@@ -199,58 +233,63 @@ class GameState {
       // Подсчитываем количество неотгаданных букв в угадываемом слове
       let unguessedCount = 0;
       letters.forEach(letter => {
-        const upperLetter = letter.toUpperCase();
-        if (!this.guessedLetters.has(upperLetter)) {
-          uniqueNewLetters.add(upperLetter);
+        const norm = this.normalizeChar(letter);
+        if (!this.guessedLetters.has(norm)) {
+          uniqueNewLetters.add(norm);
           unguessedCount++;
         }
       });
       
-      // Проверяем: если осталась только одна неразгаданная буква, бонус = 0
-      const shouldGiveBonus = unguessedCount > 1;
-      
       // Генерируем очки для уникальных новых букв (с учетом количества вхождений в угадываемом слове)
-      uniqueNewLetters.forEach(upperLetter => {
+      uniqueNewLetters.forEach(normLetter => {
         const basePoints = this.generatePoints();
-        // Подсчитываем количество вхождений буквы только в угадываемом слове
-        const letterCount = (wordToProcess.toUpperCase().match(new RegExp(upperLetter, 'g')) || []).length;
+        // Подсчитываем количество вхождений буквы только в угадываемом слове (по нормализованной форме)
+        let letterCount = 0;
+        for (const ch of wordToProcess.split('')) {
+          if (ch === ' ') continue;
+          if (this.normalizeChar(ch) === normLetter) letterCount++;
+        }
         // Умножаем очки на количество вхождений
         const pointsForLetter = basePoints * letterCount;
         totalPoints += pointsForLetter;
         // Сохраняем базовые очки за эту букву (без умножения) для статистики
         // Если буква уже была угадана ранее, берем максимальное значение
-        if (!this.letterPoints.has(upperLetter) || this.letterPoints.get(upperLetter) < basePoints) {
-          this.letterPoints.set(upperLetter, basePoints);
+        if (!this.letterPoints.has(normLetter) || this.letterPoints.get(normLetter) < basePoints) {
+          this.letterPoints.set(normLetter, basePoints);
         }
         // Отмечаем букву как угаданную
-        this.guessedLetters.add(upperLetter);
+        this.guessedLetters.add(normLetter);
       });
       
       // Формируем детальную статистику для уникальных букв угадываемого слова (в порядке первого появления)
       const seenLetters = new Set();
       letters.forEach(letter => {
-        const upperLetter = letter.toUpperCase();
-        if (!seenLetters.has(upperLetter)) {
-          seenLetters.add(upperLetter);
-          // Подсчитываем количество вхождений буквы в угадываемом слове
-          const letterCount = (wordToProcess.toUpperCase().match(new RegExp(upperLetter, 'g')) || []).length;
-          
-          if (uniqueNewLetters.has(upperLetter)) {
+        const norm = this.normalizeChar(letter);
+        if (!seenLetters.has(norm)) {
+          seenLetters.add(norm);
+          // Подсчитываем количество вхождений буквы в угадываемом слове (нормализованно)
+          let letterCount = 0;
+          for (const ch of wordToProcess.split('')) {
+            if (ch === ' ') continue;
+            if (this.normalizeChar(ch) === norm) letterCount++;
+          }
+
+          if (uniqueNewLetters.has(norm)) {
             // Новая буква, за которую начислены очки
-            const basePoints = this.letterPoints.get(upperLetter);
+            const basePoints = this.letterPoints.get(norm);
             const totalPointsForLetter = basePoints * letterCount;
             letterPointsDetails.push({ 
-              letter: upperLetter, 
+              letter: norm, 
               basePoints: basePoints,
               letterCount: letterCount,
               totalPoints: totalPointsForLetter
             });
           } else {
             // Буква уже была угадана ранее
-            const savedBasePoints = this.letterPoints.get(upperLetter) || 0;
+            const savedBasePoints = this.letterPoints.get(norm) || 0;
             const savedTotalPoints = savedBasePoints * letterCount;
             letterPointsDetails.push({ 
-              letter: upperLetter, 
+              letter: norm, 
               basePoints: savedBasePoints,
               letterCount: letterCount,
               totalPoints: savedTotalPoints,
@@ -260,8 +299,8 @@ class GameState {
         }
       });
 
-      // Добавляем 1/3 от суммы очков за неотгаданные буквы (только если осталось больше 1 буквы)
-      const bonus = shouldGiveBonus ? Math.floor(totalPoints / 3) : 0;
+      // Добавляем 1/3 от суммы очков за неотгаданные буквы (бонус всегда начисляется при /guess)
+      const bonus = Math.floor(totalPoints / 3);
       const finalPoints = totalPoints + bonus;
       
       const newTotal = this.addPoints(userId, finalPoints);
@@ -298,17 +337,21 @@ class GameState {
     const details = [];
     const letters = this.word.split('').filter(char => char !== ' ');
     const seenLetters = new Set();
-    
+
     letters.forEach(letter => {
-      const upperLetter = letter.toUpperCase();
-      if (!seenLetters.has(upperLetter)) {
-        seenLetters.add(upperLetter);
-        const basePoints = this.letterPoints.get(upperLetter) || 0;
-        // Подсчитываем количество вхождений буквы в слове
-        const letterCount = (this.word.toUpperCase().match(new RegExp(upperLetter, 'g')) || []).length;
+      const norm = this.normalizeChar(letter);
+      if (!seenLetters.has(norm)) {
+        seenLetters.add(norm);
+        const basePoints = this.letterPoints.get(norm) || 0;
+        // Подсчитываем количество вхождений буквы в слове (нормализованно)
+        let letterCount = 0;
+        for (const ch of this.word.split('')) {
+          if (ch === ' ') continue;
+          if (this.normalizeChar(ch) === norm) letterCount++;
+        }
         const totalPoints = basePoints * letterCount;
         details.push({ 
-          letter: upperLetter, 
+          letter: norm, 
           basePoints: basePoints,
           letterCount: letterCount,
           totalPoints: totalPoints
@@ -317,6 +360,28 @@ class GameState {
     });
     
     return details;
+  }
+
+  // Получить список неверных букв (назывались, но не входят в слово)
+  getWrongLetters() {
+    const wrongLetters = [];
+    const lettersInWord = new Set();
+    
+    // Собрать все буквы, которые есть в слове (нормализованные)
+    for (const ch of this.word.split('')) {
+      if (ch !== ' ') {
+        lettersInWord.add(this.normalizeChar(ch));
+      }
+    }
+    
+    // Буквы, которые попытанные, но не в слове
+    for (const letter of this.attemptedLetters) {
+      if (!lettersInWord.has(letter)) {
+        wrongLetters.push(letter);
+      }
+    }
+    
+    return wrongLetters.sort();
   }
 }
 
@@ -329,7 +394,7 @@ function getGame(chatId) {
 }
 
 // Форматировать детальную статистику очков за буквы
-function formatLetterPointsDetails(game) {
+function formatLetterPointsDetails(game, skipBonus = false) {
   const details = game.getLetterPointsDetails();
   if (details.length === 0) {
     return '';
@@ -348,7 +413,7 @@ function formatLetterPointsDetails(game) {
     .join('\n');
   
   const totalBase = details.reduce((sum, d) => sum + d.totalPoints, 0);
-  const bonus = Math.floor(totalBase / 3);
+  const bonus = skipBonus ? 0 : Math.floor(totalBase / 3);
   const total = totalBase + bonus;
 
   return `\n📊 Детальная статистика очков:\n${detailsText}\n   Итого за буквы: ${totalBase} очков\n   Бонус (+1/3): ${bonus} очков\n   Всего: ${total} очков`;
@@ -380,6 +445,7 @@ bot.command('newgame', (ctx) => {
   game.players = [];
   game.currentPlayerIndex = -1;
   game.guessedLetters.clear();
+  game.attemptedLetters.clear();
   game.scores.clear();
   game.letterPoints.clear();
   
@@ -417,6 +483,7 @@ bot.command('word', (ctx) => {
   game.word = word;
   game.isActive = true;
   game.guessedLetters.clear();
+  game.attemptedLetters.clear();
   game.currentPlayerIndex = -1; // -1 означает, что еще никто не начал ходить
   game.scores.clear(); // Сбрасываем очки при новом слове
   game.letterPoints.clear(); // Сбрасываем очки за буквы
@@ -429,7 +496,17 @@ bot.command('word', (ctx) => {
     `🎯 Слово загадано!\n\n` +
     `📝 Слово: ${displayWord}\n\n` +
     `👥 Игроки: ${game.players.length}\n\n` +
-    `💬 Участники, первый кто предложит букву - начнет игру!`
+    `💬 Участники, первый кто предложит букву - начнет игру!`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '👥 Присоединиться', callback_data: 'join' },
+            { text: '❓ Помощь', callback_data: 'help' }
+          ]
+        ]
+      }
+    }
   );
 });
 
@@ -477,12 +554,19 @@ bot.command('status', (ctx) => {
         .join('\n')
     : 'Очки пока не начислены';
 
+  // Список неверных букв
+  const wrongLetters = game.getWrongLetters();
+  const wrongLettersText = wrongLetters.length > 0
+    ? wrongLetters.join(', ')
+    : 'нет';
+
   ctx.reply(
     `📊 Статус игры:\n\n` +
     `📝 Слово: ${displayWord}\n\n` +
     `🎲 Текущий ход: @${currentPlayer?.username || 'неизвестно'}\n\n` +
     `👥 Игроки (${game.players.length}):\n${playersList}\n\n` +
-    `✅ Угаданные буквы: ${Array.from(game.guessedLetters).sort().join(', ') || 'нет'}\n\n` +
+    `✅ Угаданные буквы: ${Array.from(game.guessedLetters).sort().join(', ') || 'нет'}\n` +
+    `❌ Неверные буквы: ${wrongLettersText}\n\n` +
     `🏆 Таблица очков:\n${scoresList}`
   );
 });
@@ -665,14 +749,15 @@ bot.command('end', (ctx) => {
         .join('\n')
     : '';
   
-  // Детальная статистика очков за буквы
-  const letterDetails = formatLetterPointsDetails(game);
+  // Детальная статистика очков за буквы (без бонуса при /end)
+  const letterDetails = formatLetterPointsDetails(game, true);
   
   game.isActive = false;
   game.word = '';
   game.players = [];
   game.currentPlayerIndex = -1;
   game.guessedLetters.clear();
+  game.attemptedLetters.clear();
   game.scores.clear();
   game.letterPoints.clear();
   game.hostId = null;
@@ -681,33 +766,33 @@ bot.command('end', (ctx) => {
 });
 
 // Обработка букв от участников
-bot.on('text', (ctx) => {
+bot.command('try', (ctx) => {
   const game = getGame(ctx.chat.id);
-  
-  // Игнорируем команды
-  if (ctx.message.text.startsWith('/')) {
-    return;
-  }
 
   // Проверяем, активна ли игра
   if (!game.isActive || !game.word) {
-    return;
+    return ctx.reply('❌ Игра еще не начата.');
   }
 
   // Проверяем, что это буква (одна буква)
-  const text = ctx.message.text.trim();
+  const parts = ctx.message.text.split(' ');
+  if (!parts[1]) {
+    return ctx.reply('❌ Укажите букву! Например: /try А');
+  }
+  const text = parts[1].trim();
   if (text.length !== 1) {
-    return;
+    return ctx.reply('❌ Это не одна буква!');
   }
 
   // Проверяем, что это буква
   if (!/^[А-Яа-яЁёA-Za-z]$/.test(text)) {
-    return;
+    return ctx.reply('❌ Это не буква!!!');
   }
 
   // Проверяем, что игрок участвует в игре
   const player = game.players.find(p => p.id === ctx.from.id);
   if (!player) {
+    ctx.reply('игрок не найден!!!')
     return; // Игрок не участвует, игнорируем
   }
 
@@ -741,8 +826,8 @@ bot.on('text', (ctx) => {
             .join('\n')
         : '';
       
-      // Детальная статистика очков за буквы
-      const letterDetails = formatLetterPointsDetails(game);
+      // Детальная статистика очков за буквы (без бонуса, так как это /try)
+      const letterDetails = formatLetterPointsDetails(game, true);
       
       let pointsMessage = `💰 Вы получили ${result.points} очков!`;
       if (result.letterCount > 1) {
@@ -774,21 +859,106 @@ bot.on('text', (ctx) => {
       );
     }
   } else {
-    // Буква не угадана - передаем ход следующему игроку
-    const nextPlayer = game.passTurnToNext();
-    if (nextPlayer) {
+    // Буква не угадана или уже называлась
+    if (result.alreadyTried) {
+      // Буква уже называлась - игрок называет букву еще раз, ход не передаётся
       ctx.reply(
-        `❌ ${result.message}\n\n` +
+        `⚠️ ${result.message}\n\n` +
         `📝 Слово: ${game.getDisplayWord()}\n\n` +
-        `🎲 Следующий ход: @${nextPlayer.username || 'неизвестно'}`
+        `🎲 Попробуйте другую букву!`
       );
     } else {
-      ctx.reply(
-        `❌ ${result.message}\n\n` +
-        `📝 Слово: ${game.getDisplayWord()}`
-      );
+      // Буква не угадана - передаем ход следующему игроку
+      const nextPlayer = game.passTurnToNext();
+      if (nextPlayer) {
+        ctx.reply(
+          `❌ ${result.message}\n\n` +
+          `📝 Слово: ${game.getDisplayWord()}\n\n` +
+          `🎲 Следующий ход: @${nextPlayer.username || 'неизвестно'}`
+        );
+      } else {
+        ctx.reply(
+          `❌ ${result.message}\n\n` +
+          `📝 Слово: ${game.getDisplayWord()}`
+        );
+      }
     }
   }
+});
+
+// Обработка кнопок
+bot.action('join', (ctx) => {
+  ctx.answerCbQuery();
+  const game = getGame(ctx.chat.id);
+  
+  if (!game.isActive && !game.word) {
+    return ctx.reply('❌ Игра еще не начата. Дождитесь, пока ведущий загадает слово.');
+  }
+
+  game.addPlayer(ctx.from.id, ctx.from.username || ctx.from.first_name);
+  
+  ctx.reply(
+    `✅ @${ctx.from.username || ctx.from.first_name} присоединился к игре!\n` +
+    `👥 Всего игроков: ${game.players.length}`
+  );
+});
+
+bot.action('help', (ctx) => {
+  ctx.answerCbQuery();
+  ctx.reply(
+    '📋 Полный список команд:\n\n' +
+    '/newgame - Начать новую игру (для ведущего)\n' +
+    '/word <слово> - Загадать слово (для ведущего)\n' +
+    '/status - Показать текущее состояние игры\n' +
+    '/try <буква> - Угадать букву\n' +
+    '/guess <слово> - Угадать слово целиком\n' +
+    '/next - Передать ход следующему игроку\n' +
+    '/end - Завершить игру (для ведущего)\n\n' +
+    '💡 При правильном ответе ваш ход продолжается, при ошибке - ход переходит следующему.'
+  );
+});
+
+bot.action('status', (ctx) => {
+  ctx.answerCbQuery();
+  const game = getGame(ctx.chat.id);
+  
+  if (!game.word) {
+    return ctx.reply('❌ Игра еще не начата.');
+  }
+
+  const displayWord = game.getDisplayWord();
+  const currentPlayer = game.getCurrentPlayer();
+  const playersList = game.players
+    .map((p, idx) => {
+      const marker = idx === game.currentPlayerIndex ? '🎲' : '👤';
+      return `${marker} @${p.username || 'игрок'}`;
+    })
+    .join('\n');
+
+  const scoresTable = game.getScoresTable();
+  const scoresList = scoresTable.length > 0
+    ? scoresTable
+        .map((p, idx) => {
+          const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '  ';
+          return `${medal} @${p.username}: ${p.score} очков`;
+        })
+        .join('\n')
+    : 'Очки пока не начислены';
+
+  const wrongLetters = game.getWrongLetters();
+  const wrongLettersText = wrongLetters.length > 0
+    ? wrongLetters.join(', ')
+    : 'нет';
+
+  ctx.reply(
+    `📊 Статус игры:\n\n` +
+    `📝 Слово: ${displayWord}\n\n` +
+    `🎲 Текущий ход: @${currentPlayer?.username || 'неизвестно'}\n\n` +
+    `👥 Игроки (${game.players.length}):\n${playersList}\n\n` +
+    `✅ Угаданные буквы: ${Array.from(game.guessedLetters).sort().join(', ') || 'нет'}\n` +
+    `❌ Неверные буквы: ${wrongLettersText}\n\n` +
+    `🏆 Таблица очков:\n${scoresList}`
+  );
 });
 
 // Обработка ошибок
