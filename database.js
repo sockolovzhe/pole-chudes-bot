@@ -4,17 +4,18 @@ const { GameResult, ChatStats } = require('./models/GameResult');
 // Функция для получения времени по Екатеринбургу (UTC+5)
 function getEkaterinburgTime() {
   const now = new Date();
-  // Екатеринбург находится в UTC+5
-  const ekbTime = new Date(now.getTime() + (5 * 60 - now.getTimezoneOffset()) * 60 * 1000);
+  // Получаем UTC время и добавляем 5 часов для Екатеринбурга
+  const utcTime = new Date(now.getTime() + now.getTimezoneOffset() * 60 * 1000);
+  const ekbTime = new Date(utcTime.getTime() + 5 * 60 * 60 * 1000);
   return ekbTime;
 }
 
 // Функция для форматирования времени
 function formatTime(date = null) {
   const d = date || getEkaterinburgTime();
-  const hours = String(d.getUTCHours()).padStart(2, '0');
-  const minutes = String(d.getUTCMinutes()).padStart(2, '0');
-  const seconds = String(d.getUTCSeconds()).padStart(2, '0');
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  const seconds = String(d.getSeconds()).padStart(2, '0');
   return `${hours}:${minutes}:${seconds}`;
 }
 
