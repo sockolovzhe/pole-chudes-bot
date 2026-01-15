@@ -15,8 +15,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "telegraf": "^4.15.0",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "mongoose": "^8.21.0",
+    "telegraf": "^4.15.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

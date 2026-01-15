@@ -1,7 +1,9 @@
 const { Telegraf } = require('telegraf');
 require('dotenv').config();
+const Database = require('./database');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
+const db = new Database(process.env.MONGODB_URI || 'mongodb://localhost:27017/pole-chudes-bot');
 
 // Хранилище игр по чатам
 const games = new Map();
@@ -18,6 +20,7 @@ class GameState {
     this.isActive = false; // Активна ли игра
     this.scores = new Map(); // Очки игроков (userId -> score)
     this.letterPoints = new Map(); // Очки за каждую букву (letter -> points)
+    this.hasWinner = true; // Есть ли победитель (true по умолчанию, false если все выбыли)
   }
 
   // Нормализовать символ для сравнения: считать 'Й'='И', 'Ё'='Е', 'Ъ'='Ь' равными
@@ -157,7 +160,7 @@ class GameState {
   // Добавить игрока
   addPlayer(userId, username) {
     if (!this.players.find(p => p.id === userId)) {
-      this.players.push({ id: userId, username: username || `Игрок ${this.players.length + 1}` });
+      this.players.push({ id: userId, username: username || `Игрок ${this.players.length + 1}`, isActive: true });
       // Инициализируем очки для нового игрока
       if (!this.scores.has(userId)) {
         this.scores.set(userId, 0);
@@ -165,12 +168,61 @@ class GameState {
     }
   }
 
+  // Исключить игрока из очереди ходов (но он остаётся в игре для статистики)
+  excludePlayerFromTurns(userId) {
+    const player = this.players.find(p => p.id === userId);
+    if (player) {
+      player.isActive = false;
+      // Если исключённый игрок был текущим, передаём ход следующему активному
+      const currentPlayer = this.getCurrentPlayer();
+      if (currentPlayer && currentPlayer.id === userId) {
+        this.passTurnToNext();
+      }
+      return true;
+    }
+    return false;
+  }
+
+  // Получить количество активных игроков
+  getActivePlayers() {
+    return this.players.filter(p => p.isActive);
+  }
+
+  // Удалить игрока из игры
+  removePlayer(userId) {
+    const playerIndex = this.players.findIndex(p => p.id === userId);
+    if (playerIndex !== -1) {
+      this.players.splice(playerIndex, 1);
+      // Если удаляем текущего игрока, переходим на следующего
+      if (this.currentPlayerIndex >= this.players.length && this.players.length > 0) {
+        this.currentPlayerIndex = this.currentPlayerIndex % this.players.length;
+      } else if (this.players.length === 0) {
+        this.currentPlayerIndex = -1;
+      }
+      return true;
+    }
+    return false;
+  }
+
   // Получить следующего игрока
   getNextPlayer() {
     if (this.players.length === 0) return null;
-    const player = this.players[this.currentPlayerIndex];
-    this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.players.length;
-    return player;
+    
+    let attempts = 0;
+    let nextIndex = (this.currentPlayerIndex + 1) % this.players.length;
+    
+    // Ищем следующего АКТИВНОГО игрока
+    while (attempts < this.players.length) {
+      if (this.players[nextIndex].isActive) {
+        const player = this.players[nextIndex];
+        this.currentPlayerIndex = nextIndex;
+        return player;
+      }
+      nextIndex = (nextIndex + 1) % this.players.length;
+      attempts++;
+    }
+    
+    return null; // Нет активных игроков
   }
 
   // Получить текущего игрока
@@ -181,7 +233,7 @@ class GameState {
 
   // Установить текущего игрока по userId
   setCurrentPlayer(userId) {
-    const playerIndex = this.players.findIndex(p => p.id === userId);
+    const playerIndex = this.players.findIndex(p => p.id === userId && p.isActive);
     if (playerIndex !== -1) {
       this.currentPlayerIndex = playerIndex;
       return true;
@@ -192,9 +244,21 @@ class GameState {
   // Передать ход следующему игроку
   passTurnToNext() {
     if (this.players.length === 0) return null;
-    if (this.currentPlayerIndex === -1) return null;
-    this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.players.length;
-    return this.players[this.currentPlayerIndex];
+    
+    let attempts = 0;
+    let nextIndex = (this.currentPlayerIndex + 1) % this.players.length;
+    
+    // Ищем следующего АКТИВНОГО игрока
+    while (attempts < this.players.length) {
+      if (this.players[nextIndex].isActive) {
+        this.currentPlayerIndex = nextIndex;
+        return this.players[nextIndex];
+      }
+      nextIndex = (nextIndex + 1) % this.players.length;
+      attempts++;
+    }
+    
+    return null; // Нет активных игроков
   }
 
   // Угадать слово целиком или одно слово из фразы
@@ -203,26 +267,33 @@ class GameState {
     const normalizedGuessed = this.normalizeStringForCompare(guessedWord);
     const normalizedWord = this.normalizeStringForCompare(this.word);
 
-    // Проверяем, угадано ли все слово целиком
-    const isFullWord = normalizedGuessed === normalizedWord;
+    // Проверяем количество слов в загаданном слове
+    const wordCount = this.word.trim().split(/\s+/).length;
     
-    // Если не все слово, проверяем, является ли угаданное слово одним из слов в фразе
+    // Определяем, угадано ли правильно в зависимости от количества слов
+    let isCorrect = false;
     let targetWord = null;
-    if (!isFullWord) {
-      const words = this.word.trim().split(/\s+/);
-      const guessedWords = guessedWord.trim().split(/\s+/);
-
-      // Проверяем, является ли угаданное одно слово частью фразы (по нормализованной форме)
-      if (guessedWords.length === 1) {
-        const guessedSingleWordNorm = this.normalizeStringForCompare(guessedWords[0]);
-        targetWord = words.find(w => this.normalizeStringForCompare(w) === guessedSingleWordNorm);
+    
+    if (wordCount === 1) {
+      // Если одно слово - должно быть угадано это слово целиком
+      isCorrect = normalizedGuessed === normalizedWord;
+      targetWord = isCorrect ? this.word : null;
+    } else {
+      // Если несколько слов - нужно угадать все слова целиком
+      const isFullWords = normalizedGuessed === normalizedWord;
+      if (isFullWords) {
+        isCorrect = true;
+        targetWord = this.word;
+      } else {
+        // Если не все слова, угадывание неправильно
+        isCorrect = false;
+        targetWord = null;
       }
     }
 
-    if (isFullWord || targetWord) {
-      // Определяем, какое слово угадываем (всё или одно слово)
-      const wordToProcess = isFullWord ? this.word : targetWord;
-      const isSingleWordGuess = !isFullWord;
+    if (isCorrect && targetWord) {
+      // Определяем, какое слово угадываем (всё слово/фразу)
+      const wordToProcess = targetWord || this.word;
       
       // Вычисляем очки только за неотгаданные буквы в угадываемом слове
       const letters = wordToProcess.split('').filter(char => char !== ' '); // Игнорируем пробелы
@@ -307,10 +378,10 @@ class GameState {
 
       // Формируем сообщение
       let message;
-      if (isFullWord) {
+      if (wordCount === 1) {
         message = `🎉 Правильно! Слово "${this.word}" угадано!`;
       } else {
-        message = `🎉 Правильно! Слово "${targetWord}" угадано!`;
+        message = `🎉 Правильно! Фраза "${this.word}" угадана!`;
       }
 
       return {
@@ -321,8 +392,7 @@ class GameState {
         bonus: bonus,
         totalScore: newTotal,
         letterPointsDetails: letterPointsDetails,
-        isSingleWordGuess: isSingleWordGuess,
-        guessedWord: isFullWord ? this.word : targetWord
+        guessedWord: this.word
       };
     }
 
@@ -428,6 +498,8 @@ bot.command('start', (ctx) => {
     '/word <слово> - Загадать слово (для ведущего)\n' +
     '/join - Присоединиться к игре\n' +
     '/status - Показать текущее состояние игры\n' +
+    '/stats - Показать статистику чата\n' +
+    '/history - Показать историю последних 10 игр\n' +
     '/guess <слово> - Угадать слово целиком\n' +
     '/next - Передать ход следующему игроку (только для текущего игрока)\n' +
     '/end - Завершить игру (для ведущего)\n\n' +
@@ -571,8 +643,86 @@ bot.command('status', (ctx) => {
   );
 });
 
+// Команда /stats - показать статистику чата из базы данных
+bot.command('stats', async (ctx) => {
+  try {
+    const chatStats = await db.getChatStats(ctx.chat.id);
+    
+    if (!chatStats) {
+      return ctx.reply('❌ В этом чате еще не было сыграно игр. Начните новую игру с /newgame');
+    }
+
+    // Сортируем всех игроков по очкам
+    const allPlayers = [...chatStats.playerStats]
+      .sort((a, b) => b.totalPoints - a.totalPoints);
+
+    // Топ 10 для основного вывода
+    const topPlayers = allPlayers.slice(0, 10);
+
+    const statsText = topPlayers
+      .map((p, idx) => {
+        const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '  ';
+        const winRate = p.gamesPlayed > 0 
+          ? ((p.gamesWon / p.gamesPlayed) * 100).toFixed(1) 
+          : '0.0';
+        return `${medal} @${p.username}: ${p.totalPoints} очков (${p.gamesWon}/${p.gamesPlayed} побед, ${winRate}%)`;
+      })
+      .join('\n');
+
+    // Полный рейтинг для тех, кто запросит подробнее
+    const fullRating = allPlayers
+      .map((p, idx) => {
+        const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}️⃣`;
+        const winRate = p.gamesPlayed > 0 
+          ? ((p.gamesWon / p.gamesPlayed) * 100).toFixed(1) 
+          : '0.0';
+        return `${medal} @${p.username}: ${p.totalPoints} очков | ${p.gamesWon}/${p.gamesPlayed} побед | ${winRate}%`;
+      })
+      .join('\n');
+
+    const mainMessage = `📊 Статистика чата "${chatStats.chatTitle}":\n\n` +
+      `📈 Всего игр: ${chatStats.totalGames}\n` +
+      `👥 Всего игроков: ${allPlayers.length}\n\n` +
+      `🏆 Топ 10 игроков:\n${statsText}`;
+
+    ctx.reply(mainMessage);
+  } catch (error) {
+    console.error('Ошибка получения статистики:', error);
+    ctx.reply('❌ Ошибка при получении статистики.');
+  }
+});
+
+// Команда /history - показать историю игр в чате
+bot.command('history', async (ctx) => {
+  try {
+    const games = await db.getRecentGames(ctx.chat.id, 10);
+    
+    if (!games || games.length === 0) {
+      return ctx.reply('❌ В этом чате еще не было сыграно игр. Начните новую игру с /newgame');
+    }
+
+    const historyText = games
+      .map((game, idx) => {
+        const date = new Date(game.createdAt);
+        const dateStr = date.toLocaleDateString('ru-RU') + ' ' + date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+        const playersList = game.players.map(p => `@${p.username}(${p.score})`).join(', ');
+        const winner = game.winner ? `🏆 ${game.winner.username}(${game.winner.finalScore})` : '❓ Не завершена';
+        
+        return `${idx + 1}. "${game.word}" | ${playersList}\n   ${winner} | ${dateStr}`;
+      })
+      .join('\n\n');
+
+    ctx.reply(
+      `📜 История последних 10 игр в чате:\n\n${historyText}`
+    );
+  } catch (error) {
+    console.error('Ошибка получения истории:', error);
+    ctx.reply('❌ Ошибка при получении истории игр.');
+  }
+});
+
 // Команда /guess - угадать слово целиком
-bot.command('guess', (ctx) => {
+bot.command('guess', async (ctx) => {
   const game = getGame(ctx.chat.id);
   
   // Проверяем, активна ли игра
@@ -662,6 +812,23 @@ bot.command('guess', (ctx) => {
         `🎮 Игра завершена! Используйте /newgame для новой игры.`
       );
       
+      // Сохраняем результат в БД
+      try {
+        console.log('🔍 DEBUG: Сохраняем игру в БД (слово угадано)');
+        console.log('  game.players:', game.players);
+        console.log('  game.players.length:', game.players.length);
+        await db.saveGameResult(
+          ctx.chat.id,
+          ctx.chat.title || 'Личный чат',
+          game,
+          game.hostId,
+          game.players.find(p => p.id === game.hostId)?.username || 'неизвестно'
+        );
+        console.log('✅ Игра успешно сохранена в БД');
+      } catch (error) {
+        console.error('❌ Ошибка сохранения результата:', error);
+      }
+      
       game.isActive = false;
     } else {
       // Игра продолжается - угадано одно слово из фразы или не все буквы
@@ -679,19 +846,50 @@ bot.command('guess', (ctx) => {
       );
     }
   } else {
-    // Слово не угадано - передаем ход следующему игроку
-    const nextPlayer = game.passTurnToNext();
-    if (nextPlayer) {
+    // Слово не угадано - исключаем игрока из очереди ходов
+    const playerName = player.username;
+    const playerScore = game.getPlayerScore(ctx.from.id) || 0;
+    game.excludePlayerFromTurns(ctx.from.id);
+    
+    ctx.reply(`❌ ${result.message}\n\n` +
+      `😞 @${playerName}, вы выбыли из игры!\n` +
+      `💰 Вы набрали ${playerScore} очков`);
+    
+    // Проверяем, есть ли активные игроки
+    const activePlayers = game.getActivePlayers();
+    if (activePlayers.length > 0) {
+      const nextPlayer = game.passTurnToNext();
       ctx.reply(
-        `${result.message}\n\n` +
         `📝 Слово: ${game.getDisplayWord()}\n\n` +
         `🎲 Следующий ход: @${nextPlayer.username || 'неизвестно'}`
       );
     } else {
+      // Все игроки выбыли - сохраняем результат и завершаем игру
       ctx.reply(
-        `${result.message}\n\n` +
-        `📝 Слово: ${game.getDisplayWord()}`
+        `🎮 Все игроки выбыли! Игра завершена.\n` +
+        `📝 Слово было: ${game.word}`
       );
+      
+      // Устанавливаем флаг, что нет победителя (все выбыли)
+      game.hasWinner = false;
+      
+      // Сохраняем результат в БД
+      try {
+        console.log('🔍 DEBUG: Сохраняем игру в БД (все игроки выбыли)');
+        console.log('  game.players:', game.players);
+        await db.saveGameResult(
+          ctx.chat.id,
+          ctx.chat.title || 'Личный чат',
+          game,
+          game.hostId,
+          game.players.find(p => p.id === game.hostId)?.username || 'неизвестно'
+        );
+        console.log('✅ Игра успешно сохранена в БД');
+      } catch (error) {
+        console.error('❌ Ошибка сохранения результата:', error);
+      }
+      
+      game.isActive = false;
     }
   }
 });
@@ -725,7 +923,7 @@ bot.command('next', (ctx) => {
 });
 
 // Команда /end - завершить игру
-bot.command('end', (ctx) => {
+bot.command('end', async (ctx) => {
   const game = getGame(ctx.chat.id);
   
   if (!game.hostId) {
@@ -752,6 +950,19 @@ bot.command('end', (ctx) => {
   // Детальная статистика очков за буквы (без бонуса при /end)
   const letterDetails = formatLetterPointsDetails(game, true);
   
+  // Сохраняем результат в БД перед очисткой
+  try {
+    await db.saveGameResult(
+      ctx.chat.id,
+      ctx.chat.title || 'Личный чат',
+      game,
+      game.hostId,
+      ctx.from.username || ctx.from.first_name
+    );
+  } catch (error) {
+    console.error('Ошибка сохранения результата:', error);
+  }
+  
   game.isActive = false;
   game.word = '';
   game.players = [];
@@ -766,7 +977,7 @@ bot.command('end', (ctx) => {
 });
 
 // Обработка букв от участников
-bot.command('try', (ctx) => {
+bot.command('try', async (ctx) => {
   const game = getGame(ctx.chat.id);
 
   // Проверяем, активна ли игра
@@ -790,10 +1001,11 @@ bot.command('try', (ctx) => {
   }
 
   // Проверяем, что игрок участвует в игре
-  const player = game.players.find(p => p.id === ctx.from.id);
+  let player = game.players.find(p => p.id === ctx.from.id);
   if (!player) {
-    ctx.reply('игрок не найден!!!')
-    return; // Игрок не участвует, игнорируем
+    // Автоматически добавляем игрока, если его ещё нет
+    game.addPlayer(ctx.from.id, ctx.from.username || ctx.from.first_name);
+    player = game.players.find(p => p.id === ctx.from.id);
   }
 
   // Если еще никто не ходил, устанавливаем текущего игрока
@@ -841,6 +1053,19 @@ bot.command('try', (ctx) => {
         `🏆 Слово полностью угадано: ${game.word}${letterDetails}${finalScores}\n\n` +
         `🎮 Игра завершена! Используйте /newgame для новой игры.`
       );
+      
+      // Сохраняем результат в БД
+      try {
+        await db.saveGameResult(
+          ctx.chat.id,
+          ctx.chat.title || 'Личный чат',
+          game,
+          game.hostId,
+          game.players.find(p => p.id === game.hostId)?.username || 'неизвестно'
+        );
+      } catch (error) {
+        console.error('Ошибка сохранения результата:', error);
+      }
       
       game.isActive = false;
     } else {
@@ -910,6 +1135,8 @@ bot.action('help', (ctx) => {
     '/newgame - Начать новую игру (для ведущего)\n' +
     '/word <слово> - Загадать слово (для ведущего)\n' +
     '/status - Показать текущее состояние игры\n' +
+    '/stats - Показать статистику чата\n' +
+    '/history - Показать историю последних 10 игр\n' +
     '/try <буква> - Угадать букву\n' +
     '/guess <слово> - Угадать слово целиком\n' +
     '/next - Передать ход следующему игроку\n' +
@@ -968,13 +1195,29 @@ bot.catch((err, ctx) => {
 });
 
 // Запуск бота
-bot.launch().then(() => {
-  console.log('🤖 Бот запущен!');
-}).catch((err) => {
-  console.error('Ошибка запуска бота:', err);
-});
+async function startBot() {
+  try {
+    await db.connect();
+    await bot.launch();
+    console.log('🤖 Бот запущен!');
+  } catch (err) {
+    console.error('Ошибка запуска бота:', err);
+    process.exit(1);
+  }
+}
+
+startBot();
 
 // Graceful stop
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+process.once('SIGINT', async () => {
+  console.log('Остановка бота...');
+  await db.disconnect();
+  bot.stop('SIGINT');
+});
+
+process.once('SIGTERM', async () => {
+  console.log('Остановка бота...');
+  await db.disconnect();
+  bot.stop('SIGTERM');
+});
 
