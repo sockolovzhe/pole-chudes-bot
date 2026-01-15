@@ -5,6 +5,22 @@ const Database = require('./database');
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const db = new Database(process.env.MONGODB_URI || 'mongodb://localhost:27017/pole-chudes-bot');
 
+// Функция для получения времени по Екатеринбургу (UTC+5)
+function getEkaterinburgTime() {
+  const now = new Date();
+  const ekbTime = new Date(now.toLocaleString('ru-RU', { timeZone: 'Asia/Yekaterinburg' }));
+  return ekbTime;
+}
+
+// Функция для форматирования времени
+function formatTime(date = null) {
+  const d = date || getEkaterinburgTime();
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  const seconds = String(d.getSeconds()).padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+}
+
 // Хранилище игр по чатам
 const games = new Map();
 
@@ -818,7 +834,7 @@ bot.command('guess', async (ctx) => {
       
       // Сохраняем результат в БД
       try {
-        console.log('🔍 DEBUG: Сохраняем игру в БД (слово угадано)');
+        console.log(`[${formatTime()}] 🔍 DEBUG: Сохраняем игру в БД (слово угадано)`);
         console.log('  game.players:', game.players);
         console.log('  game.players.length:', game.players.length);
         await db.saveGameResult(
@@ -879,7 +895,7 @@ bot.command('guess', async (ctx) => {
       
       // Сохраняем результат в БД
       try {
-        console.log('🔍 DEBUG: Сохраняем игру в БД (все игроки выбыли)');
+        console.log(`[${formatTime()}] 🔍 DEBUG: Сохраняем игру в БД (все игроки выбыли)`);
         console.log('  game.players:', game.players);
         await db.saveGameResult(
           ctx.chat.id,

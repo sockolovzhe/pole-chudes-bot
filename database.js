@@ -1,6 +1,22 @@
 const mongoose = require('mongoose');
 const { GameResult, ChatStats } = require('./models/GameResult');
 
+// Функция для получения времени по Екатеринбургу (UTC+5)
+function getEkaterinburgTime() {
+  const now = new Date();
+  const ekbTime = new Date(now.toLocaleString('ru-RU', { timeZone: 'Asia/Yekaterinburg' }));
+  return ekbTime;
+}
+
+// Функция для форматирования времени
+function formatTime(date = null) {
+  const d = date || getEkaterinburgTime();
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  const seconds = String(d.getSeconds()).padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+}
+
 class Database {
   constructor(mongoUri) {
     this.mongoUri = mongoUri;
@@ -9,7 +25,7 @@ class Database {
   async connect() {
     try {
       await mongoose.connect(this.mongoUri);
-      console.log('✓ Подключено к MongoDB');
+      console.log(`[${formatTime()}] ✓ Подключено к MongoDB`);
     } catch (error) {
       console.error('✗ Ошибка подключения к MongoDB:', error);
       throw error;
@@ -46,7 +62,7 @@ class Database {
         score: gameState.getPlayerScore(player.id) || 0
       }));
 
-      console.log('DEBUG saveGameResult:');
+      console.log(`[${formatTime()}] DEBUG saveGameResult:`);
       console.log('  gameState.players:', gameState.players);
       console.log('  playersData:', playersData);
       console.log('  hasWinner:', gameState.hasWinner);
@@ -71,7 +87,7 @@ class Database {
       console.log('  Сохранено в GameResult');
       
       await this.updateChatStats(chatId, chatTitle, playersData, winner);
-      console.log('  Обновлена ChatStats');
+      console.log(`[${formatTime()}] ✅ ChatStats успешно сохранена`);
       
       return gameResult;
     } catch (error) {
@@ -83,7 +99,7 @@ class Database {
   // Обновить статистику чата
   async updateChatStats(chatId, chatTitle, players, winner) {
     try {
-      console.log('📊 updateChatStats START');
+      console.log(`[${formatTime()}] 📊 updateChatStats START`);
       console.log('  players входящие:', players);
       console.log('  players.length:', players.length);
       
