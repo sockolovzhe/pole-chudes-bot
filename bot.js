@@ -736,9 +736,13 @@ bot.command('guess', async (ctx) => {
     return ctx.reply('❌ Вы не участвуете в игре. Используйте /join чтобы присоединиться.');
   }
 
-  // Если еще никто не ходил, устанавливаем текущего игрока
+  // Если еще никто не ходил, устанавливаем первого активного игрока (того, кто присоединился первым)
   if (game.currentPlayerIndex === -1) {
-    game.setCurrentPlayer(ctx.from.id);
+    // Находим первого активного игрока
+    const firstActivePlayer = game.players.findIndex(p => p.isActive);
+    if (firstActivePlayer !== -1) {
+      game.currentPlayerIndex = firstActivePlayer;
+    }
   } else {
     // Проверяем, что это ход текущего игрока
     const currentPlayer = game.getCurrentPlayer();
@@ -1008,9 +1012,13 @@ bot.command('try', async (ctx) => {
     player = game.players.find(p => p.id === ctx.from.id);
   }
 
-  // Если еще никто не ходил, устанавливаем текущего игрока
+  // Если еще никто не ходил, устанавливаем первого активного игрока (того, кто присоединился первым)
   if (game.currentPlayerIndex === -1) {
-    game.setCurrentPlayer(ctx.from.id);
+    // Находим первого активного игрока
+    const firstActivePlayer = game.players.findIndex(p => p.isActive);
+    if (firstActivePlayer !== -1) {
+      game.currentPlayerIndex = firstActivePlayer;
+    }
   } else {
     // Проверяем, что это ход текущего игрока
     const currentPlayer = game.getCurrentPlayer();
