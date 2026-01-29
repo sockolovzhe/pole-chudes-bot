@@ -224,6 +224,46 @@ class Database {
       throw error;
     }
   }
+
+  // Зарегистрировать игрока (добавить в список всех игроков чата)
+  async registerPlayer(chatId, chatTitle, userId, username) {
+    try {
+      let chatStats = await ChatStats.findOne({ chatId });
+      
+      if (!chatStats) {
+        chatStats = new ChatStats({
+          chatId,
+          chatTitle,
+          registeredPlayers: [{ userId, username }]
+        });
+      } else {
+        // Проверяем, есть ли уже такой игрок
+        const existingPlayer = chatStats.registeredPlayers.find(p => p.userId === userId);
+        if (!existingPlayer) {
+          chatStats.registeredPlayers.push({ userId, username });
+          chatStats.markModified('registeredPlayers');
+        }
+      }
+      
+      await chatStats.save();
+      return chatStats;
+    } catch (error) {
+      console.error('Ошибка регистрации игрока:', error);
+      throw error;
+    }
+  }
+
+  // Получить всех зарегистрированных игроков в чате
+  async getRegisteredPlayers(chatId) {
+    try {
+      const chatStats = await ChatStats.findOne({ chatId });
+      if (!chatStats) return [];
+      return chatStats.registeredPlayers || [];
+    } catch (error) {
+      console.error('Ошибка получения зарегистрированных игроков:', error);
+      throw error;
+    }
+  }
 }
 
 module.exports = Database;

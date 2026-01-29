@@ -177,6 +177,10 @@ class GameState {
 
   // Добавить игрока
   addPlayer(userId, username) {
+    // Не добавляем ведущего в список игроков
+    if (userId === this.hostId) {
+      return;
+    }
     if (!this.players.find(p => p.id === userId)) {
       this.players.push({ id: userId, username: username || `Игрок ${this.players.length + 1}`, isActive: true });
       // Инициализируем очки для нового игрока
@@ -519,9 +523,7 @@ bot.command('start', (ctx) => {
     '/stats - Показать статистику чата\n' +
     '/history - Показать историю последних 10 игр\n' +
     '/guess <слово> - Угадать слово целиком\n' +
-    '/next - Передать ход следующему игроку (только для текущего игрока)\n' +
     '/end - Завершить игру (для ведущего)\n\n' +
-    '💡 Первый, кто предложит букву - начнет игру!\n' +
     '💡 При правильном ответе ваш ход продолжается, при ошибке - ход переходит следующему.'
   );
 });
@@ -542,10 +544,57 @@ bot.command('newgame', (ctx) => {
   ctx.reply(
     '🎮 Новая игра начата!\n' +
     `👤 Ведущий: @${ctx.from.username || ctx.from.first_name}\n\n` +
-    'Используйте /word <слово> чтобы загадать слово.\n' +
-    'Участники могут использовать /join чтобы присоединиться.'
+    '🤵‍♂️ Информация для ведущего: используйте /word <слово> чтобы загадать слово.\n\n' +
+    'Участникам необходимо дождаться, пока ведущий загадает слово.\n' +
+    'После этого появится кнопка "Присоединиться" (к игре).\n\n' +
+    '❗️ Первый, кто нажмёт кнопку, станет первым игроком в очереди.'
   );
 });
+
+// Функция для проверки и автодобавления последнего недостающего игрока
+async function checkAndAddLastPlayer(chatId, ctx) {
+  try {
+    const game = getGame(chatId);
+    const registeredPlayers = await db.getRegisteredPlayers(chatId);
+    
+    // Фильтруем зарегистрированных игроков (исключаем ведущего)
+    const validRegisteredPlayers = registeredPlayers.filter(p => p.userId !== game.hostId);
+    
+    // Считаем, сколько игроков уже в игре
+    const playersInGame = game.players.length;
+    const totalValidPlayers = validRegisteredPlayers.length;
+    
+    console.log(`[${formatTime()}] checkAndAddLastPlayer: всего зарегистрировано ${totalValidPlayers}, в игре ${playersInGame}`);
+    
+    // Если не достаёт ровно одного игрока - добавляем его автоматически
+    if (totalValidPlayers > 0 && (totalValidPlayers - playersInGame) === 1) {
+      console.log(`[${formatTime()}] Условие выполнено: не хватает ровно одного игрока`);
+      
+      // Находим недостающего игрока
+      const missingPlayer = validRegisteredPlayers.find(
+        regPlayer => !game.players.find(p => p.id === regPlayer.userId)
+      );
+      
+      console.log(`[${formatTime()}] Недостающий игрок: ${missingPlayer ? missingPlayer.username : 'не найден'}`);
+      
+      if (missingPlayer) {
+        game.addPlayer(missingPlayer.userId, missingPlayer.username);
+        console.log(`[${formatTime()}] ✅ Автоматически добавлен последний игрок: @${missingPlayer.username}`);
+        
+        if (ctx) {
+          ctx.reply(
+            `🤖 Автоматически добавлен последний игрок: @${missingPlayer.username}\n` +
+            `👥 Всего игроков в игре: ${game.players.length}`
+          );
+        }
+      }
+    } else {
+      console.log(`[${formatTime()}] Условие не выполнено: разница ${totalValidPlayers - playersInGame}`);
+    }
+  } catch (error) {
+    console.error('Ошибка при проверке и добавлении последнего игрока:', error);
+  }
+}
 
 // Команда /word - загадать слово (только для ведущего)
 bot.command('word', (ctx) => {
@@ -586,7 +635,7 @@ bot.command('word', (ctx) => {
     `🎯 Слово загадано!\n\n` +
     `📝 Слово: ${displayWord}\n\n` +
     `👥 Игроки: ${game.players.length}\n\n` +
-    `💬 Участники, первый кто предложит букву - начнет игру!`,
+    `💬 Участники, нажмите кнопку "Присоединиться" чтобы присоединиться к игре!`,
     {
       reply_markup: {
         inline_keyboard: [
@@ -601,11 +650,23 @@ bot.command('word', (ctx) => {
 });
 
 // Команда /join - присоединиться к игре
-bot.command('join', (ctx) => {
+bot.command('join', async (ctx) => {
   const game = getGame(ctx.chat.id);
   
   if (!game.isActive && !game.word) {
     return ctx.reply('❌ Игра еще не начата. Дождитесь, пока ведущий загадает слово.');
+  }
+
+  // Регистрируем игрока в БД
+  try {
+    await db.registerPlayer(
+      ctx.chat.id, 
+      ctx.chat.title || 'Личный чат',
+      ctx.from.id, 
+      ctx.from.username || ctx.from.first_name
+    );
+  } catch (error) {
+    console.error('Ошибка при регистрации игрока:', error);
   }
 
   game.addPlayer(ctx.from.id, ctx.from.username || ctx.from.first_name);
@@ -614,6 +675,9 @@ bot.command('join', (ctx) => {
     `✅ @${ctx.from.username || ctx.from.first_name} присоединился к игре!\n` +
     `👥 Всего игроков: ${game.players.length}`
   );
+  
+  // Проверяем, нужно ли автоматически добавить последнего игрока
+  await checkAndAddLastPlayer(ctx.chat.id, ctx);
 });
 
 // Команда /status - показать статус игры
@@ -629,7 +693,9 @@ bot.command('status', (ctx) => {
   const playersList = game.players
     .map((p, idx) => {
       const marker = idx === game.currentPlayerIndex ? '🎲' : '👤';
-      return `${marker} @${p.username || 'игрок'}`;
+      const position = idx + 1;
+      const status = p.isActive ? '' : ' (выбыл)';
+      return `${marker} #${position} @${p.username || 'игрок'}${status}`;
     })
     .join('\n');
 
@@ -654,7 +720,7 @@ bot.command('status', (ctx) => {
     `📊 Статус игры:\n\n` +
     `📝 Слово: ${displayWord}\n\n` +
     `🎲 Текущий ход: @${currentPlayer?.username || 'неизвестно'}\n\n` +
-    `👥 Игроки (${game.players.length}):\n${playersList}\n\n` +
+    `👥 Очередь игроков (${game.players.length}):\n${playersList}\n\n` +
     `✅ Угаданные буквы: ${Array.from(game.guessedLetters).sort().join(', ') || 'нет'}\n` +
     `❌ Неверные буквы: ${wrongLettersText}\n\n` +
     `🏆 Таблица очков:\n${scoresList}`
@@ -760,12 +826,21 @@ bot.command('guess', async (ctx) => {
     const firstActivePlayer = game.players.findIndex(p => p.isActive);
     if (firstActivePlayer !== -1) {
       game.currentPlayerIndex = firstActivePlayer;
+      // Проверяем, что первый ходящий - это тот же игрок
+      if (game.players[firstActivePlayer].id !== ctx.from.id) {
+        const currentPlayer = game.players[firstActivePlayer];
+        const playerIndex = game.players.findIndex(p => p.id === ctx.from.id);
+        const queuePosition = playerIndex !== -1 ? playerIndex + 1 : '?';
+        return ctx.reply(`⏳ Первый ход должен сделать @${currentPlayer.username}!\n🔢 Вы в очереди на позиции ${queuePosition}`);
+      }
     }
   } else {
     // Проверяем, что это ход текущего игрока
     const currentPlayer = game.getCurrentPlayer();
     if (!currentPlayer || currentPlayer.id !== ctx.from.id) {
-      return ctx.reply(`⏳ Сейчас не ваш ход! Ход игрока @${currentPlayer?.username || 'неизвестно'}`);
+      const playerIndex = game.players.findIndex(p => p.id === ctx.from.id);
+      const queuePosition = playerIndex !== -1 ? playerIndex + 1 : '?';
+      return ctx.reply(`⏳ Сейчас не ваш ход! Ход игрока @${currentPlayer?.username || 'неизвестно'}\n🔢 Вы в очереди на позиции ${queuePosition}`);
     }
   }
 
@@ -1036,13 +1111,21 @@ bot.command('try', async (ctx) => {
     const firstActivePlayer = game.players.findIndex(p => p.isActive);
     if (firstActivePlayer !== -1) {
       game.currentPlayerIndex = firstActivePlayer;
+      // Проверяем, что первый ходящий - это тот же игрок
+      if (game.players[firstActivePlayer].id !== ctx.from.id) {
+        const currentPlayer = game.players[firstActivePlayer];
+        const playerIndex = game.players.findIndex(p => p.id === ctx.from.id);
+        const queuePosition = playerIndex !== -1 ? playerIndex + 1 : '?';
+        return ctx.reply(`⏳ Первый ход должен сделать @${currentPlayer.username}!\n🔢 Вы в очереди на позиции ${queuePosition}`);
+      }
     }
   } else {
     // Проверяем, что это ход текущего игрока
     const currentPlayer = game.getCurrentPlayer();
     if (!currentPlayer || currentPlayer.id !== ctx.from.id) {
-      ctx.reply(`⏳ Сейчас не ваш ход! Ход игрока @${currentPlayer?.username || 'неизвестно'}`);
-      return;
+      const playerIndex = game.players.findIndex(p => p.id === ctx.from.id);
+      const queuePosition = playerIndex !== -1 ? playerIndex + 1 : '?';
+      return ctx.reply(`⏳ Сейчас не ваш ход! Ход игрока @${currentPlayer?.username || 'неизвестно'}\n🔢 Вы в очереди на позиции ${queuePosition}`);
     }
   }
 
@@ -1138,12 +1221,24 @@ bot.command('try', async (ctx) => {
 });
 
 // Обработка кнопок
-bot.action('join', (ctx) => {
+bot.action('join', async (ctx) => {
   ctx.answerCbQuery();
   const game = getGame(ctx.chat.id);
   
   if (!game.isActive && !game.word) {
     return ctx.reply('❌ Игра еще не начата. Дождитесь, пока ведущий загадает слово.');
+  }
+
+  // Регистрируем игрока в БД
+  try {
+    await db.registerPlayer(
+      ctx.chat.id, 
+      ctx.chat.title || 'Личный чат',
+      ctx.from.id, 
+      ctx.from.username || ctx.from.first_name
+    );
+  } catch (error) {
+    console.error('Ошибка при регистрации игрока:', error);
   }
 
   game.addPlayer(ctx.from.id, ctx.from.username || ctx.from.first_name);
@@ -1152,6 +1247,9 @@ bot.action('join', (ctx) => {
     `✅ @${ctx.from.username || ctx.from.first_name} присоединился к игре!\n` +
     `👥 Всего игроков: ${game.players.length}`
   );
+  
+  // Проверяем, нужно ли автоматически добавить последнего игрока
+  await checkAndAddLastPlayer(ctx.chat.id, ctx);
 });
 
 bot.action('help', (ctx) => {
@@ -1184,7 +1282,9 @@ bot.action('status', (ctx) => {
   const playersList = game.players
     .map((p, idx) => {
       const marker = idx === game.currentPlayerIndex ? '🎲' : '👤';
-      return `${marker} @${p.username || 'игрок'}`;
+      const position = idx + 1;
+      const status = p.isActive ? '' : ' (выбыл)';
+      return `${marker} #${position} @${p.username || 'игрок'}${status}`;
     })
     .join('\n');
 
@@ -1207,7 +1307,7 @@ bot.action('status', (ctx) => {
     `📊 Статус игры:\n\n` +
     `📝 Слово: ${displayWord}\n\n` +
     `🎲 Текущий ход: @${currentPlayer?.username || 'неизвестно'}\n\n` +
-    `👥 Игроки (${game.players.length}):\n${playersList}\n\n` +
+    `👥 Очередь игроков (${game.players.length}):\n${playersList}\n\n` +
     `✅ Угаданные буквы: ${Array.from(game.guessedLetters).sort().join(', ') || 'нет'}\n` +
     `❌ Неверные буквы: ${wrongLettersText}\n\n` +
     `🏆 Таблица очков:\n${scoresList}`

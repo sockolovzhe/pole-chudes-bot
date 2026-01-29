@@ -61,6 +61,14 @@ const chatStatsSchema = new mongoose.Schema({
     gamesWon: Number,
     totalPoints: Number
   }],
+  registeredPlayers: [{
+    userId: Number,
+    username: String,
+    firstSeenAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   updatedAt: {
     type: Date,
     default: Date.now
