@@ -3,7 +3,7 @@ require('dotenv').config();
 const Database = require('./database');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
-const db = new Database(process.env.MONGODB_URI || 'mongodb://localhost:27017/pole-chudes-bot');
+const db = new Database(`mongodb://${process.env.MONGO_ADMIN}:${process.env.MONGO_PASSWORD}@localhost:27017/pole-chudes-bot?authSource=admin`);
 
 // Функция для получения времени по Екатеринбургу (UTC+5)
 function getEkaterinburgTime() {

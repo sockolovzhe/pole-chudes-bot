@@ -1,12 +1,10 @@
-version: '3.8'
-
 services:
   mongodb:
     image: mongo:7.0
     container_name: pole-chudes-mongodb-prod
     restart: unless-stopped
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ADMIN}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
       MONGO_INITDB_DATABASE: pole-chudes-bot
       MONGO_INITDB_ROOT_AUTH_MECHANISM: scram-sha-256
@@ -22,7 +20,7 @@ services:
     depends_on:
       - mongodb
     environment:
-      MONGO_URI: "mongodb://admin:${MONGO_PASSWORD}@mongodb:27017/pole-chudes-bot?authSource=admin&authMechanism=SCRAM-SHA-256"
+      MONGO_URI: "mongodb://${MONGO_ADMIN}:${MONGO_PASSWORD}@mongodb:27017/pole-chudes-bot?authSource=admin&authMechanism=SCRAM-SHA-256"
     networks:
       - pole-chudes-network-prod
 
