@@ -23,9 +23,6 @@ services:
       MONGO_ADMIN: ${MONGO_ADMIN}
       MONGO_PASSWORD: ${MONGO_PASSWORD}
       MONGO_ENV: ${MONGO_ENV}
-    depends_on:
-      mongodb:
-        condition: service_healthy
     networks:
       - pole-chudes-network-prod
 
