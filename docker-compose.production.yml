@@ -7,7 +7,6 @@ services:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ADMIN}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
       MONGO_INITDB_DATABASE: pole-chudes-bot
-      MONGO_INITDB_ROOT_AUTH_MECHANISM: scram-sha-256
     volumes:
       - mongodb_data_prod:/data/db
       - mongodb_config_prod:/data/configdb
@@ -17,10 +16,16 @@ services:
     
   bot:
     build: .
-    depends_on:
-      - mongodb
+    container_name: pole-chudes-bot-prod
+    restart: unless-stopped
     environment:
-      MONGO_URI: "mongodb://${MONGO_ADMIN}:${MONGO_PASSWORD}@mongodb:27017/pole-chudes-bot?authSource=admin&authMechanism=SCRAM-SHA-256"
+      BOT_TOKEN: ${BOT_TOKEN}
+      MONGO_ADMIN: ${MONGO_ADMIN}
+      MONGO_PASSWORD: ${MONGO_PASSWORD}
+      MONGO_ENV: ${MONGO_ENV}
+    depends_on:
+      mongodb:
+        condition: service_healthy
     networks:
       - pole-chudes-network-prod
 
