@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "27999:27017"
+      - "127.0.0.1:27999:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ADMIN}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
