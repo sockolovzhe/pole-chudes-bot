@@ -3,6 +3,8 @@ services:
     image: mongo:7.0
     container_name: pole-chudes-mongodb-prod
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:27999:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ADMIN}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
@@ -12,7 +14,12 @@ services:
       - mongodb_config_prod:/data/configdb
     networks:
       - pole-chudes-network-prod
-    command: ["--bind_ip_all", "--auth"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: ["--auth"]
     
   bot:
     build: .
@@ -23,6 +30,9 @@ services:
       MONGO_ADMIN: ${MONGO_ADMIN}
       MONGO_PASSWORD: ${MONGO_PASSWORD}
       MONGO_ENV: ${MONGO_ENV}
+    depends_on:
+      mongodb:
+        condition: service_healthy
     networks:
       - pole-chudes-network-prod
 
