@@ -24,7 +24,6 @@ services:
     build: .
     container_name: pole-chudes-bot-prod
     restart: unless-stopped
-    env_file: .env.production
     depends_on:
       mongodb:
         condition: service_healthy
