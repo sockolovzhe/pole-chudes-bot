@@ -19,7 +19,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    command: ["--auth"]
     
   bot:
     build: .
@@ -29,7 +28,7 @@ services:
       BOT_TOKEN: ${BOT_TOKEN}
       MONGO_ADMIN: ${MONGO_ADMIN}
       MONGO_PASSWORD: ${MONGO_PASSWORD}
-      MONGO_ENV: ${MONGO_ENV}
+      MONGO_HOST: ${MONGO_HOST}
     depends_on:
       mongodb:
         condition: service_healthy
