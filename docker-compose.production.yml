@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:27999:27017"
+    env_file:
+    - .env 
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ADMIN}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
@@ -24,6 +26,8 @@ services:
     build: .
     container_name: pole-chudes-bot-prod
     restart: unless-stopped
+    env_file:
+    - .env
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
       MONGO_ADMIN: ${MONGO_ADMIN}
