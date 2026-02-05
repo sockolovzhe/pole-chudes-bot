@@ -4,7 +4,7 @@ services:
     container_name: pole-chudes-mongodb-prod
     restart: unless-stopped
     ports:
-      - "127.0.0.1:27999:27017"
+      - "${SERVER_IP}:${MONGO_PORT}:27017"
     env_file:
     - .env 
     environment:
