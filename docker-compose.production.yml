@@ -16,6 +16,7 @@ services:
       - mongodb_config_prod:/data/configdb
     networks:
       - pole-chudes-network-prod
+    command: ["--auth"]
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 30s
