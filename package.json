@@ -2,10 +2,10 @@
   "name": "field-of-wonders-bot",
   "version": "1.0.0",
   "description": "Телеграм-бот для игры 'Поле чудес'",
-  "main": "bot.js",
+  "main": "src/index.js",
   "scripts": {
-    "start": "node bot.js",
-    "dev": "nodemon bot.js"
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
   },
   "keywords": [
     "telegram",
@@ -15,6 +15,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@ai-sdk/groq": "^1.2.9",
+    "ai": "^4.0.38",
     "dotenv": "^16.3.1",
     "mongoose": "^8.21.0",
     "telegraf": "^4.15.0"

@@ -12,4 +12,4 @@ RUN npm ci --only=production
 COPY . .
 
 # Запускаем бота
-CMD ["node", "bot.js"]
+CMD ["node", "src/index.js"]

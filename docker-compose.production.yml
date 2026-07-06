@@ -34,7 +34,8 @@ services:
       MONGO_ADMIN: ${MONGO_ADMIN}
       MONGO_PASSWORD: ${MONGO_PASSWORD}
       MONGO_HOST: ${MONGO_HOST}
-      MONGO_PORT: ${MONGO_PORT}
+      # Внутри docker-сети Mongo всегда на 27017 (MONGO_PORT из .env — внешний порт)
+      MONGO_PORT: "27017"
     depends_on:
       mongodb:
         condition: service_healthy

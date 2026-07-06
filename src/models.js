@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-// Схема для результата одной игры
+// Результат одной игры
 const gameResultSchema = new mongoose.Schema({
   chatId: {
     type: Number,
@@ -28,6 +28,12 @@ const gameResultSchema = new mongoose.Schema({
       default: 0
     }
   }],
+  // Оценки сложности слова от игроков (1-5)
+  ratings: [{
+    userId: Number,
+    username: String,
+    rating: Number
+  }],
   winner: {
     userId: Number,
     username: String,
@@ -41,7 +47,7 @@ const gameResultSchema = new mongoose.Schema({
   }
 });
 
-// Схема для общей статистики чата
+// Общая статистика чата
 const chatStatsSchema = new mongoose.Schema({
   chatId: {
     type: Number,
