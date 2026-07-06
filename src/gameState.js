@@ -13,6 +13,8 @@ class GameState {
     this.scores = new Map(); // Очки игроков (userId -> score)
     this.letterPoints = new Map(); // Базовые очки за каждую букву (letter -> points)
     this.hasWinner = true; // false, если все игроки выбыли
+    this.pendingRiddle = null; // Сгенерированная загадка, ожидающая решения ведущего
+    this.isTestMode = false; // Тестовый режим: игра идёт, но в БД ничего не пишется (не сбрасывается reset-ом)
   }
 
   // Сбросить состояние раунда (игроки и ведущий не трогаются)
@@ -25,6 +27,7 @@ class GameState {
     this.scores.clear();
     this.letterPoints.clear();
     this.hasWinner = true;
+    this.pendingRiddle = null;
   }
 
   // Загадать новое слово (очки и попытки сбрасываются, игроки остаются)
@@ -36,6 +39,7 @@ class GameState {
     this.attemptedLetters.clear();
     this.scores.clear();
     this.letterPoints.clear();
+    this.pendingRiddle = null;
   }
 
   // Случайные очки за букву: 100-1000, кратно 100
@@ -124,6 +128,18 @@ class GameState {
       letterCount,
       totalScore: newTotal,
     };
+  }
+
+  // Совпадает ли слово с загаданным (без начисления очков)
+  checkWord(guessedWord) {
+    return normalizeString(guessedWord) === normalizeString(this.word);
+  }
+
+  // Открыть все буквы слова (для завершения игры ведущим)
+  revealAllLetters() {
+    for (const ch of this.word) {
+      if (!isSeparator(ch)) this.guessedLetters.add(normalizeChar(ch));
+    }
   }
 
   // Угадать слово (или фразу) целиком

@@ -61,37 +61,46 @@ module.exports = (bot, { db }) => {
     }
   });
 
-  // История последних игр в чате
+  // История всех игр в чате (длинная история разбивается на несколько сообщений)
   bot.command('history', async (ctx) => {
     try {
-      const recentGames = await db.getRecentGames(ctx.chat.id, 10);
+      const allGames = await db.getRecentGames(ctx.chat.id);
 
-      if (!recentGames || recentGames.length === 0) {
+      if (!allGames || allGames.length === 0) {
         return ctx.reply('❌ В этом чате еще не было сыграно игр. Начните новую игру с /newgame');
       }
 
-      const historyText = recentGames
-        .map((game, idx) => {
-          const date = new Date(game.createdAt);
-          const dateStr = date.toLocaleDateString('ru-RU') + ' ' +
-            date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-          const playersList = game.players.map(p => `@${p.username}(${p.score})`).join(', ');
-          const winner = game.winner?.username
-            ? `🏆 ${game.winner.username}(${game.winner.finalScore})`
-            : '❓ Не завершена';
+      const lines = allGames.map((game, idx) => {
+        const date = new Date(game.createdAt);
+        const dateStr = date.toLocaleDateString('ru-RU') + ' ' +
+          date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+        const playersList = game.players.map(p => `@${p.username}(${p.score})`).join(', ');
+        const winner = game.winner?.username
+          ? `🏆 ${game.winner.username}(${game.winner.finalScore})`
+          : '❓ Не завершена';
 
-          // Средняя оценка сложности слова, если игроки голосовали
-          let ratingText = '';
-          if (game.ratings?.length > 0) {
-            const average = game.ratings.reduce((sum, r) => sum + r.rating, 0) / game.ratings.length;
-            ratingText = ` | ⭐ ${average.toFixed(1)}`;
-          }
+        // Средняя оценка сложности слова, если игроки голосовали
+        let ratingText = '';
+        if (game.ratings?.length > 0) {
+          const average = game.ratings.reduce((sum, r) => sum + r.rating, 0) / game.ratings.length;
+          ratingText = ` | ⭐ ${average.toFixed(1)}`;
+        }
 
-          return `${idx + 1}. "${game.word}"${ratingText} | ${playersList}\n   ${winner} | ${dateStr}`;
-        })
-        .join('\n\n');
+        return `${idx + 1}. "${game.word}"${ratingText} | ${playersList}\n   ${winner} | ${dateStr}`;
+      });
 
-      ctx.reply(`📜 История последних 10 игр в чате:\n\n${historyText}`);
+      // Telegram ограничивает сообщение 4096 символами — режем историю на части
+      const MAX_MESSAGE_LENGTH = 3800;
+      let chunk = `📜 История игр в чате (всего: ${allGames.length}):`;
+      for (const line of lines) {
+        if (chunk.length + line.length + 2 > MAX_MESSAGE_LENGTH) {
+          await ctx.reply(chunk);
+          chunk = line;
+        } else {
+          chunk += `\n\n${line}`;
+        }
+      }
+      await ctx.reply(chunk);
     } catch (error) {
       console.error('Ошибка получения истории:', error);
       ctx.reply('❌ Ошибка при получении истории игр.');

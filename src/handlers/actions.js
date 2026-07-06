@@ -35,7 +35,7 @@ async function handleTry(ctx, db, letterInput) {
 
   // Автоматически добавляем игрока, если его ещё нет
   if (!game.players.find(p => p.id === ctx.from.id)) {
-    await registerPlayer(ctx, db);
+    await registerPlayer(ctx, db, game);
     game.addPlayer(ctx.from.id, displayName(ctx.from));
     await checkAndAddLastPlayer(ctx, game, db);
   }
@@ -92,12 +92,17 @@ async function handleGuess(ctx, db, wordInput) {
     return ctx.reply('❌ Игра еще не начата.');
   }
 
+  // Ведущий может проверять слово вне очереди (тестовый режим, без очков)
+  const isHost = ctx.from.id === game.hostId;
   const player = game.players.find(p => p.id === ctx.from.id);
-  if (!player) {
-    return ctx.reply('❌ Вы не участвуете в игре. Используйте /join чтобы присоединиться.');
-  }
 
-  if (!ensurePlayersTurn(ctx, game)) return;
+  if (!isHost) {
+    if (!player) {
+      return ctx.reply('❌ Вы не участвуете в игре. Используйте /join чтобы присоединиться.');
+    }
+
+    if (!ensurePlayersTurn(ctx, game)) return;
+  }
 
   const guessedWord = (wordInput || '').trim();
 
@@ -107,6 +112,10 @@ async function handleGuess(ctx, db, wordInput) {
 
   if (!WORD_REGEX.test(guessedWord)) {
     return ctx.reply('❌ Слово должно содержать только буквы, пробелы и тире!');
+  }
+
+  if (isHost) {
+    return handleHostGuess(ctx, db, game, guessedWord);
   }
 
   const result = game.guessWord(guessedWord, ctx.from.id);
@@ -164,6 +173,28 @@ async function handleGuess(ctx, db, wordInput) {
     game.isActive = false;
     await sendRatingPrompt(ctx, gameResult);
   }
+}
+
+// /guess от ведущего: проверка слова без очков, очереди ходов и выбывания
+async function handleHostGuess(ctx, db, game, guessedWord) {
+  if (!game.checkWord(guessedWord)) {
+    return ctx.reply(
+      `❌ Неправильно! Это не то слово.\n` +
+      `🤵 Проверка ведущего — очередь ходов не изменилась.`
+    );
+  }
+
+  // Слово верное — раскрываем его и завершаем игру штатно
+  game.revealAllLetters();
+
+  ctx.reply(
+    `🤵 Ведущий раскрыл слово: ${game.word}${formatFinalScores(game)}\n\n` +
+    `🎮 Игра завершена! Используйте /newgame для новой игры.`
+  );
+
+  const gameResult = await saveGameResult(ctx, game, db);
+  game.isActive = false;
+  await sendRatingPrompt(ctx, gameResult);
 }
 
 // Загадать слово (только ведущий)

@@ -9,8 +9,10 @@ function chatTitle(chat) {
   return chat.title || 'Личный чат';
 }
 
-// Зарегистрировать игрока в БД (ошибка не прерывает игру)
-async function registerPlayer(ctx, db) {
+// Зарегистрировать игрока в БД (ошибка не прерывает игру; в тестовом режиме БД не трогаем)
+async function registerPlayer(ctx, db, game) {
+  if (game?.isTestMode) return;
+
   try {
     await db.registerPlayer(ctx.chat.id, chatTitle(ctx.chat), ctx.from.id, displayName(ctx.from));
   } catch (error) {
@@ -49,7 +51,7 @@ async function handleJoin(ctx, game, db) {
     return ctx.reply('❌ Игра еще не начата. Дождитесь, пока ведущий загадает слово.');
   }
 
-  await registerPlayer(ctx, db);
+  await registerPlayer(ctx, db, game);
   game.addPlayer(ctx.from.id, displayName(ctx.from));
 
   ctx.reply(
@@ -95,8 +97,14 @@ function queuePosition(game, userId) {
   return playerIndex !== -1 ? playerIndex + 1 : '?';
 }
 
-// Сохранить результат игры в БД; вернуть сохранённый документ (или null при ошибке)
+// Сохранить результат игры в БД; вернуть сохранённый документ (или null при ошибке).
+// В тестовом режиме ничего не сохраняется — статистика и очки не засоряются
 async function saveGameResult(ctx, game, db, hostUsername = null) {
+  if (game.isTestMode) {
+    ctx.reply('🧪 Тестовый режим: результат игры не сохранён в статистику.');
+    return null;
+  }
+
   try {
     return await db.saveGameResult(
       ctx.chat.id,

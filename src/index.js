@@ -18,16 +18,19 @@ bot.catch((err, ctx) => {
 // Команды, отображаемые в меню Telegram
 const BOT_COMMANDS = [
   { command: 'newgame', description: 'Начать новую игру (для ведущего)' },
+  { command: 'generate', description: 'Сгенерировать загадку дня (для ведущего)' },
   { command: 'join', description: 'Присоединиться к игре' },
   { command: 'try', description: 'Угадать букву: /try А' },
   { command: 'guess', description: 'Угадать слово целиком: /guess СЛОВО' },
   { command: 'next', description: 'Передать ход следующему игроку' },
   { command: 'status', description: 'Текущее состояние игры' },
   { command: 'stats', description: 'Статистика чата' },
-  { command: 'history', description: 'История последних 10 игр' },
+  { command: 'history', description: 'История всех игр с оценками слов' },
   { command: 'words', description: 'Рейтинг слов по сложности' },
   { command: 'word', description: 'Загадать слово вручную (для ведущего)' },
   { command: 'end', description: 'Завершить игру (для ведущего)' },
+  { command: 'test', description: '🧪 Тестовый режим: очки не сохраняются' },
+  { command: 'stoptest', description: 'Выключить тестовый режим' },
 ];
 
 async function startBot() {

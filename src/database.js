@@ -131,12 +131,14 @@ class Database {
     }
   }
 
-  // Получить последние игры в чате
-  async getRecentGames(chatId, limit = 10) {
+  // Получить игры чата, новые первыми (limit = null — все игры)
+  async getRecentGames(chatId, limit = null) {
     try {
-      return await GameResult.find({ chatId })
-        .sort({ createdAt: -1 })
-        .limit(limit);
+      const query = GameResult.find({ chatId }).sort({ createdAt: -1 });
+      if (limit) {
+        query.limit(limit);
+      }
+      return await query;
     } catch (error) {
       console.error('Ошибка получения игр:', error);
       throw error;

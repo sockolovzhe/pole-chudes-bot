@@ -44,10 +44,13 @@ module.exports = (bot, { db }) => {
       if (!game.isActive || !game.word) {
         return ctx.reply('❌ Игра еще не начата.');
       }
-      if (!game.players.find(p => p.id === ctx.from.id)) {
-        return ctx.reply('❌ Вы не участвуете в игре. Используйте /join чтобы присоединиться.');
+      // Ведущему проверки участия и очереди не нужны (тестовый режим)
+      if (ctx.from.id !== game.hostId) {
+        if (!game.players.find(p => p.id === ctx.from.id)) {
+          return ctx.reply('❌ Вы не участвуете в игре. Используйте /join чтобы присоединиться.');
+        }
+        if (!ensurePlayersTurn(ctx, game)) return;
       }
-      if (!ensurePlayersTurn(ctx, game)) return;
       return askForInput(
         ctx,
         'guess',
