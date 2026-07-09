@@ -2,7 +2,7 @@
 
 const { getGame } = require('../games');
 const { formatFinalScores, formatLetterPointsDetails } = require('../format');
-const { displayName, sendWordToHost, saveGameResult } = require('./shared');
+const { displayName, sendWordPreviewToHost, sendWordToHost, saveGameResult } = require('./shared');
 const { handleSetWord } = require('./actions');
 const { askForInput } = require('./pending');
 const { startRiddleGame, handleCancelStart, RIDDLE_CONFIRM_KEYBOARD } = require('./schedule');
@@ -23,8 +23,18 @@ async function handleGenerate(ctx, game, riddleGenerator) {
     const riddle = await riddleGenerator.generateDailyRiddle();
     game.pendingRiddle = riddle;
 
+    // Слово-кандидат — ведущему в личку, чтобы он решал, видя ответ
+    const wordShown = await sendWordPreviewToHost(ctx, riddle.word);
+
     // Загадка показана, но слово ещё не загадано — решает ведущий
     await ctx.reply(riddle.riddleText, { reply_markup: RIDDLE_CONFIRM_KEYBOARD });
+
+    if (!wordShown) {
+      await ctx.reply(
+        `💡 @${displayName(ctx.from)}, чтобы видеть загаданное слово ещё до принятия загадки, ` +
+        `откройте личный чат с ботом и отправьте /start`
+      );
+    }
   } catch (error) {
     console.error('Ошибка при генерации загадки:', error);
     await ctx.reply(
