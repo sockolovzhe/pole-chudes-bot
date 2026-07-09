@@ -2,10 +2,10 @@
 
 const { getGame } = require('../games');
 const { formatFinalScores, formatLetterPointsDetails } = require('../format');
-const { displayName, sendWordPreviewToHost, sendWordToHost, saveGameResult } = require('./shared');
+const { displayName, sendWordPreviewToHost, saveGameResult } = require('./shared');
 const { handleSetWord } = require('./actions');
 const { askForInput } = require('./pending');
-const { startRiddleGame, handleCancelStart, RIDDLE_CONFIRM_KEYBOARD } = require('./schedule');
+const { handleCancelStart, RIDDLE_CONFIRM_KEYBOARD } = require('./schedule');
 
 // Сгенерировать загадку и показать её ведущему на утверждение (команда /generate и кнопки)
 async function handleGenerate(ctx, game, riddleGenerator) {
@@ -44,16 +44,6 @@ async function handleGenerate(ctx, game, riddleGenerator) {
   }
 }
 
-// Ведущий принял сгенерированную загадку: загадываем слово и запускаем игру
-async function acceptPendingRiddle(ctx, game, riddleGenerator) {
-  const riddle = game.pendingRiddle;
-  game.pendingRiddle = null;
-
-  // Слово — ведущему в личку, затем объявление игры
-  await sendWordToHost(ctx, riddle.word);
-  await startRiddleGame(ctx, game, riddle, riddleGenerator);
-}
-
 module.exports = (bot, { db, riddleGenerator }) => {
   // Начать новую игру: ведущий сам выбирает, генерировать слово или загадать своё
   bot.command('newgame', (ctx) => {
@@ -65,13 +55,12 @@ module.exports = (bot, { db, riddleGenerator }) => {
     ctx.reply(
       '🎮 Новая игра начата!\n' +
       `👤 Ведущий: @${displayName(ctx.from)}\n\n` +
-      '🤵 Ведущий, загадайте слово:\n' +
-      '🎲 /generate — сгенерировать загадку дня\n' +
-      '✍️ /word <слово> — загадать своё слово',
+      '🤵 Ведущий, загадайте слово:',
       {
         reply_markup: {
           inline_keyboard: [
-            [{ text: '🎲 Сгенерировать загадку', callback_data: 'generate' }]
+            [{ text: '🎲 Сгенерировать загадку', callback_data: 'generate' }],
+            [{ text: '✍️ Загадать своё слово', callback_data: 'word_manual' }]
           ]
         }
       }
@@ -86,25 +75,27 @@ module.exports = (bot, { db, riddleGenerator }) => {
     return handleGenerate(ctx, getGame(ctx.chat.id), riddleGenerator);
   });
 
-  // Ведущий принимает сгенерированную загадку
-  bot.action('riddle_accept', async (ctx) => {
+  // Ведущий загадывает своё слово кнопкой: просим прислать его ответом
+  bot.action('word_manual', (ctx) => {
     const game = getGame(ctx.chat.id);
 
+    if (!game.hostId) {
+      return ctx.answerCbQuery('❌ Сначала начните игру командой /newgame');
+    }
     if (game.hostId !== ctx.from.id) {
-      return ctx.answerCbQuery('❌ Только ведущий может выбирать слово');
-    }
-    if (!game.pendingRiddle) {
-      return ctx.answerCbQuery('❌ Эта загадка уже не актуальна. Сгенерируйте новую: /generate');
+      return ctx.answerCbQuery('❌ Только ведущий может загадывать слово');
     }
 
-    ctx.answerCbQuery('Слово выбрано!');
-    // Убираем кнопки с принятой загадки
-    ctx.editMessageReplyMarkup(undefined).catch(() => {});
-
-    await acceptPendingRiddle(ctx, game, riddleGenerator);
+    ctx.answerCbQuery();
+    return askForInput(
+      ctx,
+      'word',
+      `✍️ @${displayName(ctx.from)}, ответьте на это сообщение словом, которое хотите загадать`,
+      'Слово или фраза'
+    );
   });
 
-  // Ведущий откладывает старт: спрашиваем время (по Екатеринбургу)
+  // Ведущий выбирает слово и откладывает старт: спрашиваем время (по Екатеринбургу)
   bot.action('riddle_schedule', (ctx) => {
     const game = getGame(ctx.chat.id);
 
@@ -123,8 +114,8 @@ module.exports = (bot, { db, riddleGenerator }) => {
       ctx,
       'schedule',
       `⏰ @${displayName(ctx.from)}, ответьте на это сообщение временем старта игры ` +
-      `в формате ЧЧ:ММ по Екатеринбургу, например 18:30`,
-      'ЧЧ:ММ'
+      `в формате ЧЧ:ММ по Екатеринбургу (например 18:30) — или словом «сейчас», чтобы начать сразу`,
+      'ЧЧ:ММ или «сейчас»'
     );
   });
 

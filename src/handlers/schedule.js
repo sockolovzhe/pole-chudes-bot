@@ -38,9 +38,17 @@ async function handleScheduleStart(ctx, input, riddleGenerator) {
     return ctx.reply('❌ Нет загадки для отложенного старта. Сгенерируйте новую: /generate');
   }
 
+  // «Сейчас» — начать игру немедленно, без планирования
+  if (/^сейчас$/i.test(input.trim())) {
+    game.pendingRiddle = null;
+    game.cancelScheduledStart();
+    await sendWordToHost(ctx, riddle.word);
+    return startRiddleGame(ctx, game, riddle, riddleGenerator);
+  }
+
   const startAt = parseScheduleTime(input);
   if (!startAt) {
-    return ctx.reply('❌ Не понял время. Укажите его в формате ЧЧ:ММ (по Екатеринбургу), например 18:30');
+    return ctx.reply('❌ Не понял время. Укажите его в формате ЧЧ:ММ (по Екатеринбургу), например 18:30, или напишите «сейчас»');
   }
 
   game.pendingRiddle = null;
@@ -95,16 +103,12 @@ function handleCancelStart(ctx) {
   });
 }
 
-// Кнопки под сгенерированной загадкой (утверждение ведущим)
+// Кнопки под сгенерированной загадкой (утверждение ведущим).
+// Выбор слова всегда идёт через выбор времени старта («сейчас» — начать сразу)
 const RIDDLE_CONFIRM_KEYBOARD = {
   inline_keyboard: [
-    [
-      { text: '✅ Выбрать это слово', callback_data: 'riddle_accept' },
-      { text: '🔄 Другое слово', callback_data: 'riddle_retry' }
-    ],
-    [
-      { text: '⏰ Выбрать и отложить старт', callback_data: 'riddle_schedule' }
-    ]
+    [{ text: '⏰ Выбрать и отложить старт', callback_data: 'riddle_schedule' }],
+    [{ text: '🔄 Другое слово', callback_data: 'riddle_retry' }]
   ]
 };
 
