@@ -14,7 +14,16 @@ class GameState {
     this.letterPoints = new Map(); // Базовые очки за каждую букву (letter -> points)
     this.hasWinner = true; // false, если все игроки выбыли
     this.pendingRiddle = null; // Сгенерированная загадка, ожидающая решения ведущего
+    this.scheduledStart = null; // Отложенный старт игры: { riddle, startAt, timer }
     this.isTestMode = false; // Тестовый режим: игра идёт, но в БД ничего не пишется (не сбрасывается reset-ом)
+  }
+
+  // Отменить отложенный старт игры, если он был запланирован
+  cancelScheduledStart() {
+    if (this.scheduledStart) {
+      clearTimeout(this.scheduledStart.timer);
+      this.scheduledStart = null;
+    }
   }
 
   // Сбросить состояние раунда (игроки и ведущий не трогаются)
@@ -28,10 +37,13 @@ class GameState {
     this.letterPoints.clear();
     this.hasWinner = true;
     this.pendingRiddle = null;
+    this.cancelScheduledStart();
   }
 
-  // Загадать новое слово (очки и попытки сбрасываются, игроки остаются)
+  // Загадать новое слово (очки и попытки сбрасываются, игроки остаются).
+  // Ручной старт отменяет отложенный, чтобы игра не перезапустилась по таймеру
   setWord(word) {
+    this.cancelScheduledStart();
     this.word = word;
     this.isActive = true;
     this.currentPlayerIndex = -1;

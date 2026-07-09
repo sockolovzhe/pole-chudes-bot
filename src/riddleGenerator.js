@@ -1,6 +1,7 @@
 const { generateText } = require('ai');
 const { createGroq } = require('@ai-sdk/groq');
-const { formatTime } = require('./time');
+const { TIMEZONE, formatTime } = require('./time');
+const { getHolidaysForToday } = require('./holidays');
 
 // Разобрать ответ AI: извлечь слово, тему картинки и текст загадки
 function parseRiddle(text) {
@@ -62,6 +63,19 @@ function validateRiddle({ word, riddleText }) {
   return null;
 }
 
+// Замаскировать утёкший ответ в тексте загадки (все словоформы -> ███).
+// Крайняя мера, если переписать текст через AI не удалось.
+// Основа слова берётся так же, как в validateRiddle
+function maskWordInText(riddleText, word) {
+  let text = riddleText;
+  for (const part of word.split(/[ -]/)) {
+    if (part.length < 4) continue;
+    const stem = part.slice(0, Math.max(4, part.length - 2));
+    text = text.replace(new RegExp(`${stem}[а-яёa-z]*`, 'gi'), '███');
+  }
+  return text;
+}
+
 // Примеры подходящих слов для промпта (в каждый запрос попадает случайная часть,
 // чтобы модель не повторяла одни и те же слова)
 const WORD_EXAMPLES = [
@@ -86,9 +100,10 @@ class RiddleGenerator {
     }
   }
 
-  // Текущая дата для запроса
+  // Текущая дата для запроса (по Екатеринбургу)
   getCurrentDate() {
     return new Date().toLocaleDateString('ru-RU', {
+      timeZone: TIMEZONE,
       year: 'numeric',
       month: 'long',
       day: 'numeric',
@@ -96,29 +111,44 @@ class RiddleGenerator {
     });
   }
 
-  buildPrompt() {
+  buildPrompt(holidays = null) {
     const currentDate = this.getCurrentDate();
+
+    // Если удалось получить реальные праздники — модель выбирает строго из них
+    // и берёт факты только из описаний, иначе полагаемся на её знания (менее надёжно)
+    const holidaySteps = holidays?.length
+      ? `1. Сегодня ${currentDate}. Вот СПИСОК РЕАЛЬНЫХ праздников этого дня с описаниями (по данным календаря):
+${holidays.map((h, i) => `   Праздник ${i + 1}: ${h.name}${h.description ? `\n   Описание: ${h.description}` : ''}`).join('\n\n')}
+2. Выбери из этого списка ОДИН праздник, который можно интересно обыграть в формате вопроса. КАТЕГОРИЧЕСКИ НЕЛЬЗЯ выдумывать другие праздники или менять их названия.`
+      : `1. Определи, какие сегодня (${currentDate}) международные или неофициальные праздники.
+2. Выбери ОДИН праздник, который можно интересно обыграть в формате вопроса.`;
+
+    // Требование к фактам: при наличии описаний — только из них
+    const factsRule = holidays?.length
+      ? `\n   - Все факты, даты и имена бери СТРОГО из описания выбранного праздника (см. выше). НЕ добавляй фактов из своих знаний — только пересказывай описание живо и с юмором.`
+      : '';
 
     return `Ты — генератор загадок для телеграм-игры «Поле чудес».
 
 Твоя задача — автоматически создать загадку дня по следующему алгоритму:
 
-1. Определи, какие сегодня (${currentDate}) международные или неофициальные праздники.
-2. Выбери ОДИН праздник, который можно интересно обыграть в формате вопроса.
+${holidaySteps}
 3. СНАЧАЛА выбери загаданное слово. ЖЁСТКИЕ ПРАВИЛА для слова:
    - ЛУЧШЕ ВСЕГО ОДНО слово, максимум ДВА слова
    - вся строка НЕ ДЛИННЕЕ 20 СИМВОЛОВ (посчитай символы, включая пробел!), но не короче 7 букв
    - на русском языке
    - РЕДКОЕ и сложное для угадывания — такое, которое почти не встречается в повседневной жизни
    - отлично подходят: фамилии людей, имеющих отношение к празднику, названия химических веществ и минералов, научные и профессиональные термины, устаревшие слова, редкие географические названия
-   - можно использовать дефисы для составных слов
+   - можно использовать дефисы для составных слов${holidays?.length ? `
+   - ЛУЧШЕ ВСЕГО взять редкое слово прямо из описания выбранного праздника (термин, фамилию, географическое название) — тогда факты честно подводят к ответу; если в описании подходящего слова нет, возьми редкое слово, тесно связанное с темой праздника
+   - ВНИМАНИЕ: если ты взял слово из описания, то при пересказе описания в тексте загадки ЗАМЕНИ это слово оборотами «этот город», «этот человек», «это вещество» и т.п. — ответ не должен прозвучать до вопроса` : ''}
 4. Примеры подходящих слов: ${sampleExamples().map(w => `"${w}"`).join(', ')}
    Примеры показывают ТИП слов — НЕ выбирай слово из этого списка, придумай своё такого же уровня редкости!
    Примеры НЕПОДХОДЯЩИХ слов: "ФЕРМЕНТАЦИЯ ЧАЙНЫХ ЛИСТЬЕВ" (три слова, длиннее 20 символов), "ЧАЙ" (слишком короткое и простое)
 5. Потом сформируй текст загадки:
    - Торжественное приветствие и объявление праздника.
    - 3–5 коротких фактов, связанных с этим праздником, поданных живо и с юмором.
-   - Факты должны логично подводить к загаданному слову.
+   - Факты должны логично подводить к загаданному слову.${factsRule}
 6. В конце задай вопрос, ответом на который является загаданное слово.
 7. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО упоминать загаданное слово (в любой форме и склонении) в тексте загадки, фактах и вопросе — иначе загадка теряет смысл.
 
@@ -151,6 +181,51 @@ class RiddleGenerator {
 - После загаданного слова добавь строку "ТЕМА_ДЛЯ_КАРТИНКИ: [3-5 английских слов, описывающих ПРЕДМЕТЫ и сцену праздника]". НЕ пиши название праздника и слова "day", "world", "national" — только осязаемые предметы! (например: "ТЕМА_ДЛЯ_КАРТИНКИ: chocolate pieces cocoa beans truffles" или "ТЕМА_ДЛЯ_КАРТИНКИ: vintage rocket planets stars")`;
   }
 
+  // Промпт для переписывания загадки, в тексте которой проговорился ответ
+  buildRewritePrompt({ word, riddleText }) {
+    return `Вот текст загадки для игры «Поле чудес». Ответ на загадку: «${word}».
+
+Перепиши текст так, чтобы ответ НЕ встречался в нём НИ В КАКОЙ форме и склонении (ни целиком, ни частями):
+- заменяй его по смыслу оборотами «этот город», «этот человек», «это вещество» и т.п.
+- всё остальное сохрани без изменений: стиль, факты, структуру, эмодзи и вопрос в конце
+- в ответе верни ТОЛЬКО переписанный текст загадки, без пояснений и комментариев
+
+ТЕКСТ ЗАГАДКИ:
+${riddleText}`;
+  }
+
+  // Убрать спойлер из текста загадки: попросить AI переписать текст оборотами
+  // без ответа (проверяется валидатором); если не вышло — грубая маскировка ███
+  async removeSpoiler(riddle) {
+    const REWRITE_ATTEMPTS = 2;
+
+    for (const provider of this.providers) {
+      for (let attempt = 1; attempt <= REWRITE_ATTEMPTS; attempt++) {
+        try {
+          const { text } = await generateText({
+            model: provider.model,
+            prompt: this.buildRewritePrompt(riddle),
+            maxTokens: 2000,
+          });
+
+          const candidate = { ...riddle, riddleText: text.trim() };
+          if (candidate.riddleText && !validateRiddle(candidate)) {
+            console.log(`[${formatTime()}] ✓ Спойлер переписан оборотами через ${provider.name}`);
+            return candidate;
+          }
+          console.warn(`[${formatTime()}] ⚠ Переписывание ${attempt}: ответ всё ещё в тексте`);
+        } catch (error) {
+          console.warn(`[${formatTime()}] ⚠ Переписывание ${attempt} через ${provider.name}: ${error.message}`);
+          if (/rate limit/i.test(error.message)) {
+            await new Promise(resolve => setTimeout(resolve, 12000));
+          }
+        }
+      }
+    }
+
+    return { ...riddle, riddleText: maskWordInText(riddle.riddleText, riddle.word) };
+  }
+
   // Сгенерировать загадку дня: до 3 попыток на провайдера, некачественные
   // результаты (короткое слово, спойлер в тексте) идут в запас на крайний случай
   async generateDailyRiddle() {
@@ -159,7 +234,9 @@ class RiddleGenerator {
     }
 
     const ATTEMPTS_PER_PROVIDER = 6;
-    const prompt = this.buildPrompt();
+    // Реальные праздники дня с calend.ru (null — сайт недоступен, промпт по-старому)
+    const holidays = await getHolidaysForToday();
+    const prompt = this.buildPrompt(holidays);
     let imperfectRiddle = null;
     let lastError;
 
@@ -188,13 +265,19 @@ class RiddleGenerator {
         } catch (error) {
           console.error(`Ошибка генерации через ${provider.name} (попытка ${attempt}):`, error.message);
           lastError = error;
+          // Groq ограничивает токены в минуту; промпт с описаниями праздников
+          // объёмный, поэтому при упоре в лимит ждём перед следующей попыткой
+          if (/rate limit/i.test(error.message) && attempt < ATTEMPTS_PER_PROVIDER) {
+            await new Promise(resolve => setTimeout(resolve, 12000));
+          }
         }
       }
     }
 
     if (imperfectRiddle) {
-      console.warn(`[${formatTime()}] ⚠ Используем неидеальную загадку (слово: "${imperfectRiddle.word}")`);
-      return imperfectRiddle;
+      // Единственный повод для запаса — спойлер в тексте; убираем его переписыванием
+      console.warn(`[${formatTime()}] ⚠ Используем запасную загадку, убираем спойлер (слово: "${imperfectRiddle.word}")`);
+      return this.removeSpoiler(imperfectRiddle);
     }
 
     throw lastError || new Error('Не удалось сгенерировать подходящую загадку, попробуйте еще раз');
@@ -234,5 +317,6 @@ class RiddleGenerator {
 
 RiddleGenerator.parseRiddle = parseRiddle;
 RiddleGenerator.validateRiddle = validateRiddle;
+RiddleGenerator.maskWordInText = maskWordInText;
 
 module.exports = RiddleGenerator;

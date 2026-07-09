@@ -2,11 +2,18 @@
 
 const { getGame } = require('../games');
 const { START_TEXT, HELP_TEXT, medal, formatStatus } = require('../format');
+const { formatClock, formatDateTime } = require('../time');
 
 function showStatus(ctx) {
   const game = getGame(ctx.chat.id);
 
   if (!game.word) {
+    if (game.scheduledStart) {
+      return ctx.reply(
+        `⏰ Игра начнётся в ${formatClock(game.scheduledStart.startAt)} по Екатеринбургу.\n` +
+        `📤 В это время загадка будет отправлена в чат.`
+      );
+    }
     return ctx.reply('❌ Игра еще не начата.');
   }
 
@@ -71,9 +78,7 @@ module.exports = (bot, { db }) => {
       }
 
       const lines = allGames.map((game, idx) => {
-        const date = new Date(game.createdAt);
-        const dateStr = date.toLocaleDateString('ru-RU') + ' ' +
-          date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+        const dateStr = formatDateTime(new Date(game.createdAt));
         const playersList = game.players.map(p => `@${p.username}(${p.score})`).join(', ');
         const winner = game.winner?.username
           ? `🏆 ${game.winner.username}(${game.winner.finalScore})`

@@ -29,6 +29,7 @@ const BOT_COMMANDS = [
   { command: 'words', description: 'Рейтинг слов по сложности' },
   { command: 'word', description: 'Загадать слово вручную (для ведущего)' },
   { command: 'end', description: 'Завершить игру (для ведущего)' },
+  { command: 'cancelstart', description: 'Отменить отложенный старт игры (для ведущего)' },
   { command: 'test', description: '🧪 Тестовый режим: очки не сохраняются' },
   { command: 'stoptest', description: 'Выключить тестовый режим' },
 ];

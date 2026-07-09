@@ -7,10 +7,12 @@ function key(chatId, userId) {
   return `${chatId}:${userId}`;
 }
 
-// Отправить подсказку с ForceReply и запомнить ожидание (одно на игрока в чате)
+// Отправить подсказку с ForceReply и запомнить ожидание (одно на игрока в чате).
+// Работает и из команд (ctx.message), и из нажатий кнопок (ctx.callbackQuery)
 async function askForInput(ctx, type, promptText, placeholder) {
+  const sourceMessageId = ctx.message?.message_id ?? ctx.callbackQuery?.message?.message_id;
   const prompt = await ctx.reply(promptText, {
-    reply_parameters: { message_id: ctx.message.message_id },
+    reply_parameters: sourceMessageId ? { message_id: sourceMessageId } : undefined,
     reply_markup: {
       force_reply: true,
       selective: true,

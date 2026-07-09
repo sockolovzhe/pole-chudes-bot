@@ -4,8 +4,9 @@
 const { message } = require('telegraf/filters');
 const { takePendingInput } = require('./pending');
 const { handleTry, handleGuess, handleSetWord } = require('./actions');
+const { handleScheduleStart } = require('./schedule');
 
-module.exports = (bot, { db }) => {
+module.exports = (bot, { db, riddleGenerator }) => {
   bot.on(message('text'), (ctx, next) => {
     const replyTo = ctx.message.reply_to_message;
     if (!replyTo) return next();
@@ -21,6 +22,8 @@ module.exports = (bot, { db }) => {
         return handleGuess(ctx, db, input);
       case 'word':
         return handleSetWord(ctx, input);
+      case 'schedule':
+        return handleScheduleStart(ctx, input, riddleGenerator);
       default:
         return next();
     }
