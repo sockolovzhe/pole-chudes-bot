@@ -74,12 +74,6 @@ function registerRatingHandlers(bot, { db }) {
     return handleRate(ctx, db, gameResultId, catKey, Number(ratingStr));
   });
 
-  // Старые кнопки (до трёх категорий): сложность по шкале 1-5 -> 2-10
-  bot.action(/^rate:([0-9a-f]{24}):([1-5])$/, (ctx) => {
-    const [, gameResultId, ratingStr] = ctx.match;
-    return handleRate(ctx, db, gameResultId, 'd', Number(ratingStr) * 2);
-  });
-
   // Рейтинг слов чата по оценкам игроков
   bot.command('words', async (ctx) => {
     try {

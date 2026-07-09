@@ -32,7 +32,6 @@ const gameResultSchema = new mongoose.Schema({
   ratings: [{
     userId: Number,
     username: String,
-    rating: Number, // устаревшее: сложность по шкале 1-5 (до 10.07.2026)
     difficulty: Number, // сложность слова
     question: Number, // интересность вопроса
     process: Number // интересность отгадки (процесса игры)
