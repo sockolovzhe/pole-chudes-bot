@@ -20,7 +20,7 @@ async function handleGenerate(ctx, game, riddleGenerator) {
   await ctx.reply('⏳ Генерирую загадку дня...');
 
   try {
-    const riddle = await riddleGenerator.generateDailyRiddle();
+    const riddle = await riddleGenerator.generateDailyRiddle(game.rejectedWords);
     game.pendingRiddle = riddle;
 
     // Слово-кандидат — ведущему в личку, чтобы он решал, видя ответ
@@ -127,6 +127,11 @@ module.exports = (bot, { db, riddleGenerator }) => {
     ctx.answerCbQuery();
     // Убираем кнопки с отклонённой загадки
     ctx.editMessageReplyMarkup(undefined).catch(() => {});
+
+    // Запоминаем отклонённое слово, чтобы генерация не предлагала его снова
+    if (game.pendingRiddle?.word) {
+      game.rejectedWords.push(game.pendingRiddle.word);
+    }
 
     return handleGenerate(ctx, game, riddleGenerator);
   });

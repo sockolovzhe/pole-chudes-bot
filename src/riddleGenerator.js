@@ -2,18 +2,24 @@ const { generateText } = require('ai');
 const { createGroq } = require('@ai-sdk/groq');
 const { TIMEZONE, formatTime } = require('./time');
 const { getHolidaysForToday } = require('./holidays');
+const { normalizeString } = require('./letters');
 
 // Разобрать ответ AI: извлечь слово, тему картинки и текст загадки
 function parseRiddle(text) {
   // Загаданное слово: только до конца строки; слабые модели иногда пишут
   // пробелы подчёркиваниями — приводим их к пробелам
   const wordMatch = text.match(/ЗАГАДАННОЕ_СЛОВО:[ \t]*([А-ЯЁа-яё][А-ЯЁа-яё_ -]*)/);
-  const word = wordMatch
+  let word = wordMatch
     ? wordMatch[1].replace(/_/g, ' ').replace(/\s+/g, ' ').trim().toUpperCase()
     : null;
 
   if (!word) {
     throw new Error('Не удалось извлечь загаданное слово из ответа AI');
+  }
+
+  // Некоторые модели пишут слово в разрядку («А Н А Х И Т А») — склеиваем
+  if (/^(?:[А-ЯЁ] )+[А-ЯЁ]$/.test(word)) {
+    word = word.replace(/ /g, '');
   }
 
   // Тема для картинки (английские слова для генерации изображения)
@@ -90,13 +96,16 @@ function sampleExamples(count = 6) {
 }
 
 class RiddleGenerator {
-  // Генерация через бесплатный Groq API (модель Llama 3.3 70B)
-  constructor({ groqApiKey } = {}) {
+  // Генерация через бесплатный Groq API (модель openai/gpt-oss-120b).
+  // generateTextFn — подмена AI-вызова для тестов
+  constructor({ groqApiKey, generateTextFn } = {}) {
     this.providers = [];
+    this.generateText = generateTextFn || generateText;
 
     if (groqApiKey) {
       const groq = createGroq({ apiKey: groqApiKey });
-      this.providers.push({ name: 'groq', model: groq('llama-3.3-70b-versatile') });
+      // gpt-oss-120b — флагман бесплатного Groq; llama-3.3-70b отключают 16.08.2026
+      this.providers.push({ name: 'groq', model: groq('openai/gpt-oss-120b') });
     }
   }
 
@@ -111,8 +120,13 @@ class RiddleGenerator {
     });
   }
 
-  buildPrompt(holidays = null) {
+  buildPrompt(holidays = null, excludeWords = []) {
     const currentDate = this.getCurrentDate();
+
+    // Слова, которые ведущий уже отклонил кнопкой «Другое слово»
+    const excludeRule = excludeWords.length
+      ? `\n   - КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНЫ слова, которые ведущий уже отклонил: ${excludeWords.map(w => `"${w}"`).join(', ')} — выбери СОВЕРШЕННО ДРУГОЕ слово, лучше всего по другому празднику или другому факту из описания`
+      : '';
 
     // Если удалось получить реальные праздники — модель выбирает строго из них
     // и берёт факты только из описаний, иначе полагаемся на её знания (менее надёжно)
@@ -139,7 +153,7 @@ ${holidaySteps}
    - на русском языке
    - РЕДКОЕ и сложное для угадывания — такое, которое почти не встречается в повседневной жизни
    - отлично подходят: фамилии людей, имеющих отношение к празднику, названия химических веществ и минералов, научные и профессиональные термины, устаревшие слова, редкие географические названия
-   - можно использовать дефисы для составных слов${holidays?.length ? `
+   - можно использовать дефисы для составных слов${excludeRule}${holidays?.length ? `
    - ЛУЧШЕ ВСЕГО взять редкое слово прямо из описания выбранного праздника (термин, фамилию, географическое название) — тогда факты честно подводят к ответу; если в описании подходящего слова нет, возьми редкое слово, тесно связанное с темой праздника
    - ВНИМАНИЕ: если ты взял слово из описания, то при пересказе описания в тексте загадки ЗАМЕНИ это слово оборотами «этот город», «этот человек», «это вещество» и т.п. — ответ не должен прозвучать до вопроса` : ''}
 4. Примеры подходящих слов: ${sampleExamples().map(w => `"${w}"`).join(', ')}
@@ -175,7 +189,7 @@ ${holidaySteps}
 
 ВАЖНО:
 - Обязательно укажи загаданное слово после "ЗАГАДАННОЕ_СЛОВО:" чтобы я мог его извлечь программно
-- В строке "ЗАГАДАННОЕ_СЛОВО:" пиши слово обычными буквами, части разделяй пробелами (НЕ подчёркиваниями)
+- В строке "ЗАГАДАННОЕ_СЛОВО:" пиши слово СЛИТНО, обычными буквами: НЕ разделяй буквы пробелами или подчёркиваниями (правильно: "ПРИМЕР", неправильно: "П Р И М Е Р"). Если слов два — раздели их одним пробелом
 - Слово: не короче 7 букв, не длиннее 20 символов, максимум два слова
 - Само загаданное слово НЕ должно встречаться в тексте загадки и вопросе
 - После загаданного слова добавь строку "ТЕМА_ДЛЯ_КАРТИНКИ: [3-5 английских слов, описывающих ПРЕДМЕТЫ и сцену праздника]". НЕ пиши название праздника и слова "day", "world", "national" — только осязаемые предметы! (например: "ТЕМА_ДЛЯ_КАРТИНКИ: chocolate pieces cocoa beans truffles" или "ТЕМА_ДЛЯ_КАРТИНКИ: vintage rocket planets stars")`;
@@ -202,10 +216,10 @@ ${riddleText}`;
     for (const provider of this.providers) {
       for (let attempt = 1; attempt <= REWRITE_ATTEMPTS; attempt++) {
         try {
-          const { text } = await generateText({
+          const { text } = await this.generateText({
             model: provider.model,
             prompt: this.buildRewritePrompt(riddle),
-            maxTokens: 2000,
+            maxTokens: 2500,
           });
 
           const candidate = { ...riddle, riddleText: text.trim() };
@@ -227,8 +241,9 @@ ${riddleText}`;
   }
 
   // Сгенерировать загадку дня: до 3 попыток на провайдера, некачественные
-  // результаты (короткое слово, спойлер в тексте) идут в запас на крайний случай
-  async generateDailyRiddle() {
+  // результаты (короткое слово, спойлер в тексте) идут в запас на крайний случай.
+  // excludeWords — слова, отклонённые ведущим кнопкой «Другое слово»
+  async generateDailyRiddle(excludeWords = []) {
     if (this.providers.length === 0) {
       throw new Error('Не настроен AI-провайдер: укажите GROQ_API_KEY в .env');
     }
@@ -236,20 +251,28 @@ ${riddleText}`;
     const ATTEMPTS_PER_PROVIDER = 6;
     // Реальные праздники дня с calend.ru (null — сайт недоступен, промпт по-старому)
     const holidays = await getHolidaysForToday();
-    const prompt = this.buildPrompt(holidays);
+    const prompt = this.buildPrompt(holidays, excludeWords);
+    const excludeSet = new Set(excludeWords.map(w => normalizeString(w)));
     let imperfectRiddle = null;
     let lastError;
 
     for (const provider of this.providers) {
       for (let attempt = 1; attempt <= ATTEMPTS_PER_PROVIDER; attempt++) {
         try {
-          const { text } = await generateText({
+          const { text } = await this.generateText({
             model: provider.model,
             prompt,
-            maxTokens: 2000,
+            maxTokens: 2500,
           });
 
           const riddle = parseRiddle(text);
+
+          // Отклонённое слово не годится даже в запас — пробуем ещё раз
+          if (excludeSet.has(normalizeString(riddle.word))) {
+            console.warn(`[${formatTime()}] ⚠ ${provider.name}, попытка ${attempt}: слово "${riddle.word}" уже отклонялось ведущим`);
+            continue;
+          }
+
           const problem = validateRiddle(riddle);
 
           if (!problem) {

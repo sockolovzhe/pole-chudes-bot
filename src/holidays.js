@@ -6,7 +6,7 @@ const { TIMEZONE, formatTime } = require('./time');
 
 const FETCH_TIMEOUT_MS = 15000;
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36';
-const DESCRIPTION_MAX_CHARS = 1200; // описания идут в промпт — держим его компактным
+const DESCRIPTION_MAX_CHARS = 900; // описания идут в промпт — держим его компактным (у gpt-oss-120b лимит 8k токенов/мин)
 const MAX_DESCRIPTIONS = 8; // не больше стольких страниц описаний за раз
 
 // Кэш на день: праздники меняются раз в сутки, дёргать сайт на каждую генерацию незачем

@@ -58,6 +58,39 @@ async function sendWordToHost(ctx, word) {
   );
 }
 
+function escapeHtml(text) {
+  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Упоминание, которое присылает игроку уведомление (работает и без username)
+function mentionHtml(player) {
+  return `<a href="tg://user?id=${player.id}">@${escapeHtml(player.username)}</a>`;
+}
+
+// Если все зарегистрированные игроки чата уже в игре — объявить, кто ходит
+// первым, с настоящим упоминанием. Объявляется один раз за раунд
+async function announceFirstTurnIfReady(ctx, game, db) {
+  if (!game.isActive || game.firstTurnAnnounced || game.currentPlayerIndex !== -1) return;
+
+  const firstPlayer = game.players.find(p => p.isActive);
+  if (!firstPlayer) return;
+
+  try {
+    const registered = await db.getRegisteredPlayers(ctx.chat.id);
+    const expected = registered.filter(p => p.userId !== game.hostId);
+    // Список игроков чата пуст или собрались ещё не все — ждём
+    if (expected.length === 0 || game.players.length < expected.length) return;
+
+    game.firstTurnAnnounced = true;
+    await ctx.reply(
+      `🎉 Все игроки в сборе!\n🎲 Первым ходит ${mentionHtml(firstPlayer)} — угадывайте букву!`,
+      { parse_mode: 'HTML' }
+    );
+  } catch (error) {
+    console.error('Ошибка объявления первого хода:', error);
+  }
+}
+
 // Зарегистрировать игрока в БД (ошибка не прерывает игру; в тестовом режиме БД не трогаем)
 async function registerPlayer(ctx, db, game) {
   if (game?.isTestMode) return;
@@ -109,6 +142,7 @@ async function handleJoin(ctx, game, db) {
   );
 
   await checkAndAddLastPlayer(ctx, game, db);
+  await announceFirstTurnIfReady(ctx, game, db);
 }
 
 // Проверить, что сейчас ход игрока; если нет — ответить и вернуть false.
@@ -173,6 +207,7 @@ module.exports = {
   chatTitle,
   sendWordPreviewToHost,
   sendWordToHost,
+  announceFirstTurnIfReady,
   registerPlayer,
   checkAndAddLastPlayer,
   handleJoin,

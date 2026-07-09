@@ -15,6 +15,8 @@ class GameState {
     this.hasWinner = true; // false, если все игроки выбыли
     this.pendingRiddle = null; // Сгенерированная загадка, ожидающая решения ведущего
     this.scheduledStart = null; // Отложенный старт игры: { riddle, startAt, timer }
+    this.firstTurnAnnounced = false; // Объявляли ли, кто ходит первым (когда все в сборе)
+    this.rejectedWords = []; // Слова, отклонённые ведущим кнопкой «Другое слово»
     this.isTestMode = false; // Тестовый режим: игра идёт, но в БД ничего не пишется (не сбрасывается reset-ом)
   }
 
@@ -37,6 +39,8 @@ class GameState {
     this.letterPoints.clear();
     this.hasWinner = true;
     this.pendingRiddle = null;
+    this.firstTurnAnnounced = false;
+    this.rejectedWords = [];
     this.cancelScheduledStart();
   }
 
@@ -52,6 +56,7 @@ class GameState {
     this.scores.clear();
     this.letterPoints.clear();
     this.pendingRiddle = null;
+    this.firstTurnAnnounced = false;
   }
 
   // Случайные очки за букву: 100-1000, кратно 100
