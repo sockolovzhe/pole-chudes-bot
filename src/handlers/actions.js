@@ -4,8 +4,6 @@
 const { getGame } = require('../games');
 const { SINGLE_LETTER_REGEX, WORD_REGEX, HAS_LETTER_REGEX } = require('../letters');
 const {
-  JOIN_KEYBOARD,
-  formatWordAnnouncement,
   formatFinalScores,
   formatLetterPointsDetails,
   formatLetterPointsMessage,
@@ -13,6 +11,8 @@ const {
 } = require('../format');
 const { displayName, registerPlayer, checkAndAddLastPlayer, ensurePlayersTurn, saveGameResult } = require('./shared');
 const { sendRatingPrompt } = require('./rating');
+const { askForInput } = require('./pending');
+const { askForStartTime } = require('./schedule');
 
 // Угадать букву
 async function handleTry(ctx, db, letterInput) {
@@ -197,7 +197,8 @@ async function handleHostGuess(ctx, db, game, guessedWord) {
   await sendRatingPrompt(ctx, gameResult);
 }
 
-// Загадать слово (только ведущий)
+// Загадать своё слово (только ведущий): слово сохраняется как черновик,
+// дальше бот спрашивает текст вопроса, а затем время старта игры
 function handleSetWord(ctx, wordInput) {
   const game = getGame(ctx.chat.id);
 
@@ -219,9 +220,58 @@ function handleSetWord(ctx, wordInput) {
     return ctx.reply('❌ Слово должно содержать только буквы, пробелы и тире!');
   }
 
-  game.setWord(word);
+  game.pendingRiddle = { word, riddleText: null, imageTheme: null, custom: true };
 
-  ctx.reply(formatWordAnnouncement(game), JOIN_KEYBOARD);
+  return askForInput(
+    ctx,
+    'question',
+    `📜 @${displayName(ctx.from)}, ответьте на это сообщение текстом вопроса к загаданному слову — ` +
+    `игроки увидят его при старте игры. Или напишите «без вопроса»`,
+    'Текст вопроса или «без вопроса»'
+  );
 }
 
-module.exports = { handleTry, handleGuess, handleSetWord };
+// Текст вопроса к своему слову; дальше — тема для картинки
+function handleSetQuestion(ctx, questionInput) {
+  const game = getGame(ctx.chat.id);
+
+  if (game.hostId !== ctx.from.id) {
+    return ctx.reply('❌ Только ведущий может загадывать слово!');
+  }
+
+  if (!game.pendingRiddle?.custom) {
+    return ctx.reply('❌ Загаданное слово не найдено. Начните заново: кнопка «✍️ Загадать своё слово»');
+  }
+
+  const question = (questionInput || '').trim();
+  game.pendingRiddle.riddleText = /^(без вопроса|нет)$/i.test(question) ? null : question;
+
+  return askForInput(
+    ctx,
+    'imagetheme',
+    `🎨 @${displayName(ctx.from)}, ответьте темой для картинки к вопросу — что на ней изобразить ` +
+    `(можно по-русски). Картинка придёт в чат при старте игры; следите, чтобы она не подсказывала ответ. ` +
+    `Или напишите «без картинки»`,
+    'Тема картинки или «без картинки»'
+  );
+}
+
+// Тема картинки к своему слову; дальше — выбор времени старта
+function handleSetImageTheme(ctx, themeInput) {
+  const game = getGame(ctx.chat.id);
+
+  if (game.hostId !== ctx.from.id) {
+    return ctx.reply('❌ Только ведущий может загадывать слово!');
+  }
+
+  if (!game.pendingRiddle?.custom) {
+    return ctx.reply('❌ Загаданное слово не найдено. Начните заново: кнопка «✍️ Загадать своё слово»');
+  }
+
+  const theme = (themeInput || '').trim();
+  game.pendingRiddle.imageTheme = /^(без картинки|нет)$/i.test(theme) ? null : theme;
+
+  return askForStartTime(ctx);
+}
+
+module.exports = { handleTry, handleGuess, handleSetWord, handleSetQuestion, handleSetImageTheme };

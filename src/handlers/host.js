@@ -5,7 +5,7 @@ const { formatFinalScores, formatLetterPointsDetails } = require('../format');
 const { displayName, sendWordPreviewToHost, saveGameResult } = require('./shared');
 const { handleSetWord } = require('./actions');
 const { askForInput } = require('./pending');
-const { handleCancelStart, RIDDLE_CONFIRM_KEYBOARD } = require('./schedule');
+const { askForStartTime, handleCancelStart, RIDDLE_CONFIRM_KEYBOARD } = require('./schedule');
 
 // Сгенерировать загадку и показать её ведущему на утверждение (команда /generate и кнопки)
 async function handleGenerate(ctx, game, riddleGenerator) {
@@ -110,13 +110,7 @@ module.exports = (bot, { db, riddleGenerator }) => {
     // Убираем кнопки с загадки, ждём время ответом на подсказку
     ctx.editMessageReplyMarkup(undefined).catch(() => {});
 
-    return askForInput(
-      ctx,
-      'schedule',
-      `⏰ @${displayName(ctx.from)}, ответьте на это сообщение временем старта игры ` +
-      `в формате ЧЧ:ММ по Екатеринбургу (например 18:30) — или словом «сейчас», чтобы начать сразу`,
-      'ЧЧ:ММ или «сейчас»'
-    );
+    return askForStartTime(ctx);
   });
 
   // Отменить отложенный старт

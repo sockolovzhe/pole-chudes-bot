@@ -3,7 +3,7 @@
 
 const { message } = require('telegraf/filters');
 const { takePendingInput } = require('./pending');
-const { handleTry, handleGuess, handleSetWord } = require('./actions');
+const { handleTry, handleGuess, handleSetWord, handleSetQuestion, handleSetImageTheme } = require('./actions');
 const { handleScheduleStart } = require('./schedule');
 
 module.exports = (bot, { db, riddleGenerator }) => {
@@ -22,6 +22,10 @@ module.exports = (bot, { db, riddleGenerator }) => {
         return handleGuess(ctx, db, input);
       case 'word':
         return handleSetWord(ctx, input);
+      case 'question':
+        return handleSetQuestion(ctx, input);
+      case 'imagetheme':
+        return handleSetImageTheme(ctx, input);
       case 'schedule':
         return handleScheduleStart(ctx, input, riddleGenerator);
       default:
