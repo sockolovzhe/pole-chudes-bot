@@ -1,11 +1,13 @@
 // Команды ведущего: /newgame, /generate, /word, /end
 
 const { getGame } = require('../games');
-const { formatFinalScores, formatLetterPointsDetails } = require('../format');
-const { displayName, sendWordPreviewToHost, saveGameResult } = require('./shared');
+const { RIDDLE_CONFIRM_KEYBOARD, formatFinalScores, formatLetterPointsDetails } = require('../format');
+const { displayName } = require('./users');
+const { sendWordPreviewToHost } = require('./notify');
+const { saveGameResult } = require('./shared');
 const { handleSetWord } = require('./actions');
 const { askForInput } = require('./pending');
-const { askForStartTime, handleCancelStart, RIDDLE_CONFIRM_KEYBOARD } = require('./schedule');
+const { askForStartTime, handleCancelStart } = require('./schedule');
 
 // Сгенерировать загадку и показать её ведущему на утверждение (команда /generate и кнопки)
 async function handleGenerate(ctx, game, riddleGenerator) {

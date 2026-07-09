@@ -9,7 +9,8 @@ const {
   formatLetterPointsMessage,
   formatGuessPointsMessage,
 } = require('../format');
-const { displayName, registerPlayer, checkAndAddLastPlayer, ensurePlayersTurn, saveGameResult } = require('./shared');
+const { displayName } = require('./users');
+const { registerPlayer, checkAndAddLastPlayer, ensurePlayersTurn, saveGameResult } = require('./shared');
 const { sendRatingPrompt } = require('./rating');
 const { askForInput } = require('./pending');
 const { askForStartTime } = require('./schedule');

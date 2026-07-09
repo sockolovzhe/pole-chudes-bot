@@ -3,9 +3,10 @@
 
 const { Input } = require('telegraf');
 const { getGame } = require('../games');
-const { JOIN_KEYBOARD, formatWordAnnouncement } = require('../format');
+const { JOIN_KEYBOARD, RIDDLE_CONFIRM_KEYBOARD, formatWordAnnouncement } = require('../format');
 const { formatClock, formatTime, isSameEkbDay, parseScheduleTime } = require('../time');
-const { displayName, sendWordToHost } = require('./shared');
+const { displayName } = require('./users');
+const { sendWordToHost } = require('./notify');
 const { askForInput } = require('./pending');
 
 // Спросить у ведущего время старта игры (ответом на это сообщение)
@@ -137,13 +138,4 @@ function handleCancelStart(ctx) {
   });
 }
 
-// Кнопки под сгенерированной загадкой (утверждение ведущим).
-// Выбор слова всегда идёт через выбор времени старта («сейчас» — начать сразу)
-const RIDDLE_CONFIRM_KEYBOARD = {
-  inline_keyboard: [
-    [{ text: '⏰ Выбрать и отложить старт', callback_data: 'riddle_schedule' }],
-    [{ text: '🔄 Другое слово', callback_data: 'riddle_retry' }]
-  ]
-};
-
-module.exports = { askForStartTime, startRiddleGame, handleScheduleStart, handleCancelStart, RIDDLE_CONFIRM_KEYBOARD };
+module.exports = { askForStartTime, startRiddleGame, handleScheduleStart, handleCancelStart };

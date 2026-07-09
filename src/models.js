@@ -28,11 +28,14 @@ const gameResultSchema = new mongoose.Schema({
       default: 0
     }
   }],
-  // Оценки сложности слова от игроков (1-5)
+  // Оценки игры от игроков, шкала 1-10 (см. src/ratingValues.js)
   ratings: [{
     userId: Number,
     username: String,
-    rating: Number
+    rating: Number, // устаревшее: сложность по шкале 1-5 (до 10.07.2026)
+    difficulty: Number, // сложность слова
+    question: Number, // интересность вопроса
+    process: Number // интересность отгадки (процесса игры)
   }],
   winner: {
     userId: Number,

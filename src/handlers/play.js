@@ -1,7 +1,8 @@
 // Игровые команды: /join, /try, /guess, /next (и кнопка "Присоединиться")
 
 const { getGame } = require('../games');
-const { displayName, handleJoin, ensurePlayersTurn } = require('./shared');
+const { displayName } = require('./users');
+const { handleJoin, ensurePlayersTurn } = require('./shared');
 const { handleTry, handleGuess } = require('./actions');
 const { askForInput } = require('./pending');
 

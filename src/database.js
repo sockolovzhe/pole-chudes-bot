@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const { GameResult, ChatStats } = require('./models');
 const { formatTime } = require('./time');
+const { RATING_FIELDS, categoryValue } = require('./ratingValues');
 
 class Database {
   constructor(mongoUri) {
@@ -145,8 +146,9 @@ class Database {
     }
   }
 
-  // Поставить/изменить оценку сложности слова (голосуют только игроки партии)
-  async rateWord(gameResultId, userId, username, rating) {
+  // Поставить/изменить оценку игры в категории field: difficulty | question |
+  // process (голосуют только игроки партии). Возвращает среднюю по категории
+  async rateWord(gameResultId, userId, username, field, rating) {
     try {
       const gameResult = await GameResult.findById(gameResultId);
       if (!gameResult) return null;
@@ -157,36 +159,59 @@ class Database {
 
       const existing = gameResult.ratings.find(r => r.userId === userId);
       if (existing) {
-        existing.rating = rating;
+        existing[field] = rating;
         existing.username = username;
       } else {
-        gameResult.ratings.push({ userId, username, rating });
+        gameResult.ratings.push({ userId, username, [field]: rating });
       }
 
       gameResult.markModified('ratings');
       await gameResult.save();
 
-      const count = gameResult.ratings.length;
-      const average = gameResult.ratings.reduce((sum, r) => sum + r.rating, 0) / count;
-      return { word: gameResult.word, average, count };
+      const values = gameResult.ratings
+        .map(r => categoryValue(r, field))
+        .filter(value => value != null);
+      const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+      return { word: gameResult.word, average, count: values.length };
     } catch (error) {
       console.error('Ошибка сохранения оценки слова:', error);
       throw error;
     }
   }
 
-  // Рейтинг слов чата по сложности (по средней оценке игроков)
-  async getWordDifficultyRating(chatId, limit = 10) {
+  // Рейтинг слов чата: средние оценки по трём категориям, сортировка по сложности.
+  // Игр в чате немного, поэтому агрегируем в JS — так учитывается старая шкала
+  async getWordRatings(chatId, limit = 10) {
     try {
-      const rows = await GameResult.aggregate([
-        { $match: { chatId, 'ratings.0': { $exists: true } } },
-        { $unwind: '$ratings' },
-        { $group: { _id: '$word', average: { $avg: '$ratings.rating' }, votes: { $sum: 1 } } },
-        { $sort: { average: -1, votes: -1 } },
-        { $limit: limit }
-      ]);
+      const games = await GameResult.find({ chatId, 'ratings.0': { $exists: true } }).lean();
 
-      return rows.map(r => ({ word: r._id, average: r.average, votes: r.votes }));
+      const byWord = new Map();
+      for (const game of games) {
+        const acc = byWord.get(game.word) || { word: game.word, difficulty: [], question: [], process: [] };
+        for (const entry of game.ratings) {
+          for (const field of RATING_FIELDS) {
+            const value = categoryValue(entry, field);
+            if (value != null) acc[field].push(value);
+          }
+        }
+        byWord.set(game.word, acc);
+      }
+
+      const average = values => values.length
+        ? values.reduce((sum, value) => sum + value, 0) / values.length
+        : null;
+
+      return [...byWord.values()]
+        .map(w => ({
+          word: w.word,
+          difficulty: average(w.difficulty),
+          question: average(w.question),
+          process: average(w.process),
+          votes: Math.max(w.difficulty.length, w.question.length, w.process.length),
+        }))
+        .filter(w => w.votes > 0)
+        .sort((a, b) => (b.difficulty ?? -1) - (a.difficulty ?? -1))
+        .slice(0, limit);
     } catch (error) {
       console.error('Ошибка получения рейтинга слов:', error);
       throw error;

@@ -3,6 +3,7 @@
 const { getGame } = require('../games');
 const { START_TEXT, HELP_TEXT, medal, formatStatus } = require('../format');
 const { formatClock, formatDateTime } = require('../time');
+const { averageFor } = require('../ratingValues');
 
 function showStatus(ctx) {
   const game = getGame(ctx.chat.id);
@@ -84,11 +85,18 @@ module.exports = (bot, { db }) => {
           ? `🏆 ${game.winner.username}(${game.winner.finalScore})`
           : '❓ Не завершена';
 
-        // Средняя оценка сложности слова, если игроки голосовали
+        // Средние оценки игры, если игроки голосовали
+        // (🧩 сложность, 📜 вопрос, 🎲 отгадка; шкала 1-10)
         let ratingText = '';
         if (game.ratings?.length > 0) {
-          const average = game.ratings.reduce((sum, r) => sum + r.rating, 0) / game.ratings.length;
-          ratingText = ` | ⭐ ${average.toFixed(1)}`;
+          const parts = [];
+          const difficulty = averageFor(game.ratings, 'difficulty');
+          const question = averageFor(game.ratings, 'question');
+          const process = averageFor(game.ratings, 'process');
+          if (difficulty != null) parts.push(`🧩 ${difficulty.toFixed(1)}`);
+          if (question != null) parts.push(`📜 ${question.toFixed(1)}`);
+          if (process != null) parts.push(`🎲 ${process.toFixed(1)}`);
+          if (parts.length > 0) ratingText = ` | ${parts.join(' ')}`;
         }
 
         return `${idx + 1}. "${game.word}"${ratingText} | ${playersList}\n   ${winner} | ${dateStr}`;
