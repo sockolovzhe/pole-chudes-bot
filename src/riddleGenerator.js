@@ -249,7 +249,7 @@ ${riddleText}`;
     }
 
     const ATTEMPTS_PER_PROVIDER = 6;
-    // Реальные праздники дня с calend.ru (null — сайт недоступен, промпт по-старому)
+    // Реальные праздники дня с my-calend.ru (null — сайт недоступен, промпт по-старому)
     const holidays = await getHolidaysForToday();
     const prompt = this.buildPrompt(holidays, excludeWords);
     const excludeSet = new Set(excludeWords.map(w => normalizeString(w)));
